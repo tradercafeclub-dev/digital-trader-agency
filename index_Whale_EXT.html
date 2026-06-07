@@ -9810,11 +9810,24 @@ function closeMobTgPanel() {
    เปิดด้วย window.location.href → ใช้ history.back() กลับได้เลย
    fallback: ไป index.html#market ─────────────────────── */
 function tccGoBack(){
-  // redirect ตรงไป trading_app_v53.html แล้ว navTo futures ผ่าน hash
-  var clean = window.location.href.split('?')[0].split('#')[0];
-  var base  = clean.endsWith('/') ? clean : clean.replace(/\/[^\/]*$/, '/');
-  window.location.href = base + 'index.html#futures';
+  try{
+    // กรณีเปิดใน iframe (legacy) → เรียก parent.closeWhale()
+    if(window.parent && window.parent !== window && typeof window.parent.closeWhale === 'function'){
+      window.parent.closeWhale();
+      return;
+    }
+  }catch(e){}
+  // กรณีเปิดด้วย navigation ปกติ → back ไปหน้าก่อนหน้า
+  if(window.history.length > 1){
+    history.back();
+  } else {
+    // fallback: ไป index.html โดยตรง
+    var clean = window.location.href.split('?')[0].split('#')[0];
+    var base  = clean.endsWith('/') ? clean : clean.replace(/\/[^\/]*$/, '/');
+    window.location.href = base + 'index.html#market';
+  }
 }
+
 // ════════════════════════════════════════════════════════════════
 // 🔐 MEMBER AUTH SYSTEM — Forecast Gate
 // ════════════════════════════════════════════════════════════════
