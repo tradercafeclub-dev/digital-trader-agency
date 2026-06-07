@@ -3294,7 +3294,7 @@ function connectWS() {
       const coin = S.coinMap[S.symbol] || S.coin;
       ws.send(JSON.stringify({ method:'subscribe', subscription:{ type:'l2Book', coin } }));
       ws.send(JSON.stringify({ method:'subscribe', subscription:{ type:'trades', coin } }));
-      setApiStatus(true, 'WebSocket เชื่อมต่อสำเร็จ — TCC Maket Live');
+      setApiStatus(true, 'WebSocket เชื่อมต่อสำเร็จ — TCC Market Live');
     };
     ws.onmessage = (e) => {
       try {
