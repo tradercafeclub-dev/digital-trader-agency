@@ -1100,7 +1100,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
     <img id="tcc-logo" src="https://i.ibb.co/NgQ08PZJ/TCC-Small-1-Logo.png" alt="TCC"
       onerror="this.style.display='none'"/>
   </div>
-  <div id="tcc-name">TCC WORLD EXCHANGE</div>
+  <div id="tcc-name">TCC Digital Trader Agency</div>
   <div id="tcc-dots">
     <div class="tcc-dot"></div>
     <div class="tcc-dot"></div>
@@ -2752,20 +2752,20 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
   <div class="earn-modal-overlay" id="earnClaimModal">
     <div class="earn-modal">
       <div class="earn-modal-handle"></div>
-      <div class="earn-modal-title">💰 เคลมกำไร</div>
+      <div class="earn-modal-title">แบ่งกำไร</div>
       <div class="earn-claim-row"><span class="earn-claim-label">สัญญา</span><span class="earn-claim-val" id="claimContractId">—</span></div>
       <div class="earn-claim-row"><span class="earn-claim-label">Realized PnL</span><span class="earn-claim-val" style="color:var(--g)" id="claimRealizedPnl">+0.00</span></div>
       <div class="earn-claim-row"><span class="earn-claim-label">Unrealized PnL (ค้างอยู่)</span><span class="earn-claim-val" style="color:var(--r)" id="claimUnrealizedPnl">-0.00</span></div>
       <div class="earn-claim-row" style="background:rgba(240,185,11,.05)"><span class="earn-claim-label" style="color:var(--t1);font-weight:700">กำไรสุทธิที่เคลมได้</span><span class="earn-claim-val" style="color:var(--y);font-size:16px" id="claimNetProfit">0.00</span></div>
       <div class="earn-claim-split">
         <div class="earn-claim-split-title">การแบ่งจ่ายกำไร</div>
-        <div class="earn-claim-split-row"><span class="earn-claim-split-label">🟢 คุณได้รับ (40%)</span><span class="earn-claim-split-val" style="color:var(--g)" id="splitUser">0.00 USDT</span></div>
-        <div class="earn-claim-split-row"><span class="earn-claim-split-label">🏛 System Center (40%)</span><span class="earn-claim-split-val" id="splitSystem">0.00 USDT</span></div>
-        <div class="earn-claim-split-row"><span class="earn-claim-split-label">💼 Commission (10%)</span><span class="earn-claim-split-val" id="splitComm">0.00 USDT</span></div>
-        <div class="earn-claim-split-row"><span class="earn-claim-split-label">🛡 Reserve Fund (10%)</span><span class="earn-claim-split-val" id="splitReserve">0.00 USDT</span></div>
+        <div class="earn-claim-split-row"><span class="earn-claim-split-label">คุณได้รับ (40%)</span><span class="earn-claim-split-val" style="color:var(--g)" id="splitUser">0.00 USDT</span></div>
+        <div class="earn-claim-split-row"><span class="earn-claim-split-label">System Center (40%)</span><span class="earn-claim-split-val" id="splitSystem">0.00 USDT</span></div>
+        <div class="earn-claim-split-row"><span class="earn-claim-split-label">Commission (10%)</span><span class="earn-claim-split-val" id="splitComm">0.00 USDT</span></div>
+        <div class="earn-claim-split-row"><span class="earn-claim-split-label">Reserve Fund (10%)</span><span class="earn-claim-split-val" id="splitReserve">0.00 USDT</span></div>
       </div>
       <div class="earn-modal-footer">
-        <button class="earn-submit-btn" id="claimSubmitBtn" onclick="submitClaimProfit()">ยืนยันเคลมกำไร → Main Wallet</button>
+        <button class="earn-submit-btn" id="claimSubmitBtn" onclick="submitClaimProfit()">ยืนยันแบ่งกำไร → Main Wallet</button>
         <div style="text-align:center;padding:14px 0 0;font-size:13px;color:var(--t2);cursor:pointer" onclick="closeClaimModal()">ยกเลิก</div>
       </div>
       <div style="height:16px"></div>
@@ -7695,10 +7695,10 @@ function buildEarnCard(c) {
     <!-- Actions -->
     <div class="earn-card-actions">
       <button class="earn-act-btn claim" ${!canClaim?'disabled':''} onclick="openClaimModal('${c.contractId}')">
-        💰 เคลมกำไร${canClaim?' (+$'+netProfit.toFixed(2)+')':''}
+        แบ่งกำไร${canClaim?' (+$'+netProfit.toFixed(2)+')':''}
       </button>
       <button class="earn-act-btn trade" onclick="goTradeWithContract('${c.contractId}')">
-        📈 Trade
+         Trade
       </button>
       <button class="earn-act-btn detail" onclick="showEarnDetail('${c.contractId}')">
         ···
