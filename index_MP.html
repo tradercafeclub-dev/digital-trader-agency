@@ -30068,5 +30068,4266 @@ if (typeof HIST !== 'undefined' && !HIST.logWithdraw) {
     // ไม่เรียก saveWithdraw ที่นี่ — astExecuteWithdraw จัดการแล้ว
   };
 }
+// ── Earn: Create ─────────────────────────────────────────────────
+// patch submitCreateEarn hook point
+const _origSubmitCreateEarn = typeof submitCreateEarn !== 'undefined'
+  ? submitCreateEarn : null;
+
+// ไม่ patch ฟังก์ชั่นโดยตรง เพราะ submitCreateEarn ใช้ function declaration
+// → ใช้ MutationObserver แทน หรือเรียก saveEarnCreate ที่ท้ายสุดของ submitCreateEarn
+// วิธีที่แนะนำ: เพิ่ม hook ใน submitCreateEarn ใน HTML โดยตรง:
+//
+//   function submitCreateEarn() {
+//     ...โค้ดเดิม...
+//     saveEarnCreate({ contractId: contract.contractId, amount: amt,
+//                      planDays: days, dailyYield: yld });  // ← เพิ่มบรรทัดนี้
+//   }
+//
+// หรือใช้ EventEmitter pattern ด้านล่าง:
+// [v8] hooks ด้านล่างนี้เป็น fallback เผื่อ function declaration ยังไม่โหลด
+// submitCreateEarn, submitClaimProfit, _autoLiquidate เรียก saveEarn* โดยตรงแล้ว
+window._onEarnCreate = function(contract) {
+  // [FIX-2b] no-op — disabled to prevent duplicate Earn Deposit transaction
+  // submitCreateEarn() calls saveEarnCreate() directly; this hook must NOT call it again
+  void contract;
+};
+
+window._onEarnClaim = function(contractId, userShare, netProfit) {
+  if (typeof saveEarnClaim === 'function') saveEarnClaim({ contractId, userShare, netProfit });
+};
+window._onEarnLiquidate = function(contractId, loss, remaining) {
+  if (typeof saveEarnLiquidate === 'function') saveEarnLiquidate({ contractId, loss, remaining });
+};
+
+// ══════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  // [FIX-RECOVERY] เปิดใช้ QUEUE.restore() — กู้คำสั่งเขียนที่ค้าง/fail จาก session ก่อนหน้า
+  // กลับมา retry อัตโนมัติ (เดิม dbWrite ส่งตรงไป GAS เท่านั้น ไม่เคย enqueue เมื่อ fail
+  // ทำให้ QUEUE.restore() ไม่มีความหมายเพราะไม่มีอะไรให้กู้ — ตอนนี้ dbWrite enqueue เมื่อ fail แล้ว)
+  QUEUE.restore();
+  // ── init goldLevNote visibility ตาม S.coin เริ่มต้น ──
+  setTimeout(_syncGoldLevNote, 500);
+
+  // ── [AUTH] [v5 FIX SLOW-LOAD] เดิมรอ navTo() เรียก autoLoginFromMembers() ตอน splash
+  //    หายที่ 4200ms เท่านั้น ("ไม่ต้องเรียกที่นี่เพื่อป้องกัน navTo ซ้ำซ้อน")
+  //    แต่ autoLoginFromMembers() อ่าน session จาก localStorage ตรงๆ (synchronous, ไม่มี
+  //    network call) — เรียกได้ทันทีโดยไม่กระทบ visual เพราะ .page ทั้งหมดยังถูก
+  //    _hidePages() ซ่อนไว้อยู่จนกว่า splash timer จะ _showPages() (ดู initSplash ด้านบน)
+  //    เรียกไว้ก่อนช่วยให้ USER_PROFILE.uid/avatar/โปรไฟล์/wallet display พร้อมเร็วขึ้น
+  //    ไม่ต้องรอ 4.2s เปล่าๆ — navTo() ยังมี guard !USER_PROFILE._memberLoaded อยู่เดิม
+  //    กันเรียกซ้ำตอน splash หาย (ถ้าเรียกที่นี่ไปแล้วจะ skip เอง ไม่ชนกัน)
+  if (typeof USER_PROFILE !== 'undefined' && !USER_PROFILE._memberLoaded && typeof autoLoginFromMembers === 'function') {
+    try { autoLoginFromMembers(); } catch(e) { console.error('[Auth] autoLoginFromMembers early-call failed:', e); }
+  }
+
+  // ── Offline Engine: sync earnContracts + openOrders ตอนเปิดแอป ──
+  // [v5 FIX SLOW-LOAD] เดิม delay คงที่ 5000ms/1000ms ไม่ว่าเน็ตเร็วหรือช้า ทำให้ยอดเงิน/
+  //   ออเดอร์/สัญญาโหลดช้าเสมอโดยไม่จำเป็น (ผู้ใช้เน็ตเร็วก็ต้องรอ 5 วิเปล่าๆ)
+  //   ตรวจแล้ว: syncOfflineEngine()/loadOfflineState()/loadDashboard() (ดูภายในฟังก์ชัน)
+  //   อ่าน uid จาก session ตรงๆอยู่แล้ว ไม่ต้องพึ่ง USER_PROFILE.uid ให้พร้อมก่อน และมี
+  //   retry ในตัวถ้า session ยังไม่พร้อมจริงๆ (loadOfflineState retry เอง 3s)
+  //   → เรียกได้ทันที ไม่ต้องเดารอ 5 วิ
+  syncOfflineEngine();           // ส่ง local state → GAS
+  loadOfflineState();            // ดึง GAS state กลับ (sync ทั้ง positions/contracts/orders)
+
+  (async () => {
+    try {
+      const dash = await loadDashboard();
+      console.warn('[DB] Dashboard ready | Queue:', QUEUE._q.length, 'pending');
+      // [v7 FIX] render earnContracts หลัง dashboard โหลดเสร็จ (กรณี loadOfflineState ยังทำงาน)
+      if (typeof renderEarnContracts === 'function') renderEarnContracts();
+    } catch (e) {
+      console.warn('[DB] Dashboard error (offline?)', e.message);
+    }
+  })();
+
+  setTimeout(snapshotPortfolio, 5000);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') QUEUE.flush();
+  });
+  window.addEventListener('beforeunload', () => QUEUE.flush());
+});
+
+// ─────────────────────────────────────────────────────────────
+</script>
+<script>
+// ════════════════════════════════════════════════════════════════
+//  TC APPLICATION FLOW — ported from index_Easy_BN2_v14
+//  ฐานข้อมูล: Applications table ใน DB1 (Worker/NocoDB)
+//  PasswordHash: ใช้ร่วมกับ TCC_Database (DB1)
+// ════════════════════════════════════════════════════════════════
+
+const TC = {
+  step: 1,
+  member: null,
+  traderApp: null,   // Applications row ที่ DesiredPosition==='เทรดเดอร์'
+  appRow: null,      // backward compat สำหรับ password check
+  appId: null,
+  passwordHash: '',
+};
+
+// ── Helpers ────────────────────────────────────────────────────
+function tcFmtNum(n){
+  if(n===null||n===undefined||n==='')return '—';
+  const v=parseFloat(String(n).replace(/,/g,''));
+  if(isNaN(v))return String(n);
+  return v.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function tcParseNum(s){
+  if(!s&&s!==0)return 0;
+  const v=parseFloat(String(s).replace(/[^0-9.-]/g,''));
+  return isNaN(v)?0:v;
+}
+function tcBadge(st){
+  const m={Approved:'#22c55e',Rejected:'#ef4444',Editing:'#fbbf24',Pending:'#60a5fa'};
+  const c=m[st]||m.Pending;
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:700;background:${c}22;color:${c};border:1px solid ${c}44;">${st==='Approved'?tccT('tc_badge_approved'):st==='Rejected'?tccT('tc_badge_rejected'):st==='Editing'?tccT('tc_badge_editing'):tccT('tc_badge_pending')}</span>`;
+}
+function tcNumInput(id){
+  const el=document.getElementById(id);if(!el)return;
+  let v=el.value.replace(/[^0-9.]/g,'');
+  const parts=v.split('.');
+  if(parts.length>2)v=parts[0]+'.'+parts.slice(1).join('');
+  el.dataset.raw=v;
+  if(v){
+    const n=parseFloat(v);
+    if(!isNaN(n))el.value=n.toLocaleString('th-TH',{minimumFractionDigits:0,maximumFractionDigits:6});
+  }
+}
+function tcNumBlurSimple(id){
+  const el=document.getElementById(id);if(!el)return;
+  const raw=el.dataset.raw||el.value.replace(/[^0-9.]/g,'');
+  el.dataset.raw=raw;
+  const n=parseFloat(raw);
+  if(!isNaN(n)&&raw!=='')el.value=n.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+// ── tcRenderMain — render into #tc-app-root-main ──────────────
+function tcRenderMain(){
+  const r=document.getElementById('tc-app-root-main');if(!r)return;
+
+  // ── ถ้า user login ผ่าน LG แล้ว (มี session) และ TC.member ยังว่าง
+  //    → ดึง member จาก session มาใส่ TC แล้วข้ามไป step 4 ──
+  if(TC.step<=3 && !TC.member){
+    const sess=_lgLoadSession?_lgLoadSession():null;
+    if(sess && sess.uid){
+      // สร้าง member object จาก session
+      const m={};
+      m['BNB_ID']=sess.uid; m['UID']=sess.uid; m['Field 1']=sess.uid;
+      m['Name']=sess.username||sess.uid;
+      m['Team']=sess.team||'';
+      m['Phone']=sess.phone||'';
+      m['Address Wallet']=sess.walletAddress||'';
+      m['Status']=sess.memberStatus||'';
+      TC.member=m;
+      // ดึง applications (PasswordHash) จาก DB1
+      (async()=>{
+        try{
+          const bnbId=sess.uid;
+          const appRes=await ndbFetch('applications',{where:`(BNB_ID,eq,${bnbId})`,limit:10});
+          const apps=appRes.list||appRes.data?.list||(Array.isArray(appRes)?appRes:[]);
+          const _sessRealApps=apps.filter(a=>(a.DesiredPosition||'')!=='ลงทะเบียน');
+          TC.traderApp=_sessRealApps.find(a=>(a.DesiredPosition||'')==='เทรดเดอร์')||null;
+          TC.appRow=TC.traderApp||_sessRealApps[0]||apps.find(a=>(a.DesiredPosition||'')==='ลงทะเบียน')||null;
+          TC.appId=TC.appRow?(TC.appRow.Id||TC.appRow.id||null):null;
+          TC.passwordHash=TC.appRow?.PasswordHash||'';
+        }catch(e){TC.traderApp=null;TC.appRow=null;TC.appId=null;}
+        TC.step=4;
+        tcRenderMain();
+      })();
+      // แสดง loading ระหว่างรอ
+      r.innerHTML=`<div style="text-align:center;padding:60px 20px;">
+        <div style="font-size:2rem;margin-bottom:12px;">⏳</div>
+        <div style="color:var(--t2);font-size:.9rem;"><span data-i18n="loading_member">${tccT('loading_member')}</span></div>
+      </div>`;
+      return;
+    }
+  }
+
+  switch(TC.step){
+    case 1:r.innerHTML=tcS1Main();break;
+    case 2:r.innerHTML=tcS2Main();break;
+    case 3:r.innerHTML=tcS3Main();break;
+    case 4:r.innerHTML=tcS4Main();break;
+    case 5:r.innerHTML=tcS5Summary();break;
+  }
+}
+
+// ── Bar helpers ────────────────────────────────────────────────
+function tcBarShow(type,msg){
+  const root=document.getElementById('tc-app-root-main');if(!root)return;
+  let old=root.querySelector('.tc-action-bar');if(old)old.remove();
+  const bar=document.createElement('div');
+  bar.className='tc-action-bar tc-bar-'+type;
+  const iconMap={loading:'⏳',success:'✅',error:'❌',warn:'⚠️'};
+  if(type==='loading'){
+    bar.innerHTML=`<div class="tc-bar-spin"></div><div class="tc-bar-title">${msg}</div>`;
+  }else{
+    bar.innerHTML=`<span>${iconMap[type]||'•'}</span><div class="tc-bar-title">${msg}</div><button class="tc-bar-close" onclick="this.closest('.tc-action-bar').remove()">✕</button>`;
+  }
+  root.prepend(bar);
+}
+function tcBarRemove(){
+  const r=document.getElementById('tc-app-root-main');
+  if(r){const b=r.querySelector('.tc-action-bar');if(b)b.remove();}
+}
+function tcErr(el,msg){if(el){el.textContent=msg;el.style.display='block';}}
+
+// ── Step bar ───────────────────────────────────────────────────
+function tcBarSteps(cur){
+  const steps=[{n:1,l:tccT('step_lbl_bnbid')},{n:2,l:tccT('step_lbl_verify')},{n:3,l:tccT('step_lbl_password')},{n:4,l:tccT('step_lbl_apply')},{n:5,l:tccT('step_lbl_summary')}];
+  let h='<div class="tc-step-bar">';
+  steps.forEach((s,i)=>{
+    const c=cur>s.n?'s-done':cur===s.n?'s-active':'';
+    h+=`<div class="tc-step ${c}"><div class="tc-step-dot">${cur>s.n?'✓':s.n}</div><div class="tc-step-lbl">${s.l}</div></div>`;
+    if(i<steps.length-1)h+=`<div class="tc-step-line ${cur>s.n?'done':''}"></div>`;
+  });
+  return h+'</div>';
+}
+
+// ── Step 1: BNB ID ─────────────────────────────────────────────
+function tcS1Main(){
+  return `${tcBarSteps(1)}
+  <div class="tc-card">
+    <div class="tc-card-ttl"><span data-i18n="trader_app">${tccT('trader_app')}</span></div>
+    <p style="font-size:.8rem;color:var(--t2);margin-bottom:14px;">${tccT('tc_hint_bnbid')}</p>
+    <div class="tc-grp">
+      <label class="tc-lbl"><span data-i18n="member_id">${tccT('member_id')}</span></label>
+      <input class="tc-inp" id="tc-bnbid" placeholder="${tccT('bnbid_placeholder')}" maxlength="40"
+        onkeydown="if(event.key==='Enter')tcS1go()">
+      <div class="tc-err" id="tc-e1" style="display:none;"></div>
+    </div>
+    <button class="tc-btn tc-btn-gold" onclick="tcS1go()"><span data-i18n="search_member">${tccT('search_member')}</span></button>
+  </div>`;
+}
+async function tcS1go(){
+  const inp=document.getElementById('tc-bnbid'),err=document.getElementById('tc-e1');
+  if(!inp)return;
+  const v=inp.value.trim();
+  if(!v){tcErr(err,tccT('tc_err_bnbid_empty'));return;}
+  inp.disabled=true;
+  tcBarShow('loading',tccT('tc_loading_member'));
+  // โหลด MEMBERS ถ้ายังไม่มี
+  if(!MEMBERS||!MEMBERS.length){
+    try{await loadMembers();}catch(e){inp.disabled=false;tcBarShow('error',tccT('tc_err_db_connect'));return;}
+  }
+  const found=MEMBERS.find(m=>memVal(m,'id').toLowerCase()===v.toLowerCase());
+  if(!found){inp.disabled=false;tcBarShow('error',tccT('tc_err_not_found').replace('{v}',v));return;}
+  TC.member=found;
+  // ดึง Applications record (PasswordHash อยู่ที่นี่)
+  tcBarShow('loading',tccT('tc_loading_app'));
+  try{
+    const appRes=await ndbFetch('applications',{where:`(BNB_ID,eq,${v})`,limit:10});
+    const apps=appRes.list||appRes.data?.list||(Array.isArray(appRes)?appRes:[]);
+    const _tcRealApps=apps.filter(r=>(r.DesiredPosition||'')!=='ลงทะเบียน');
+    TC.traderApp=_tcRealApps.find(r=>(r.DesiredPosition||'')==='เทรดเดอร์')||null;
+    // appRow = ใช้เก็บ PasswordHash — รับจาก record 'ลงทะเบียน' ด้วย (เพราะมี hash)
+    TC.appRow=TC.traderApp||_tcRealApps[0]||apps.find(r=>(r.DesiredPosition||'')==='ลงทะเบียน')||null;
+    TC.appId=TC.appRow?(TC.appRow.Id||TC.appRow.id||null):null;
+  }catch(e){TC.traderApp=null;TC.appRow=null;TC.appId=null;}
+  tcBarRemove();TC.step=2;tcRenderMain();
+}
+
+// ── Step 2: ยืนยันตัวตน ────────────────────────────────────────
+function tcS2Main(){
+  const m=TC.member,name=memVal(m,'name');
+  const masked=name.length>2?name[0]+'*'.repeat(Math.max(1,name.length-2))+name[name.length-1]:name;
+  const hasTrader=!!TC.traderApp;
+  return `${tcBarSteps(2)}
+  <div class="tc-card">
+    <div class="tc-card-ttl"><span data-i18n="verify_id">${tccT('verify_id')}</span></div>
+    <div class="tc-mem-banner">
+      <div class="tc-mem-av">${(name||'?')[0].toUpperCase()}</div>
+      <div>
+        <div class="tc-mem-name">${masked}</div>
+        <div class="tc-mem-sub">${tccT('tc_mem_sub_sep')}: ${memVal(m,'team')||'—'} | ID: ${memVal(m,'id')}</div>
+        ${hasTrader?`<div style="margin-top:3px;">${tcBadge(TC.traderApp.Status||'Pending')} ${tccT('tc_badge_trader')}</div>`:''}
+      </div>
+    </div>
+    <div class="tc-grp">
+      <label class="tc-lbl"><span data-i18n="phone_reg">${tccT('phone_reg')}</span></label>
+      <input class="tc-inp" id="tc-phone" type="tel" placeholder="0812345678" maxlength="20"
+        onkeydown="if(event.key==='Enter')tcS2go()">
+      <div class="tc-err" id="tc-e2" style="display:none;"></div>
+    </div>
+    <button class="tc-btn tc-btn-gold" onclick="tcS2go()"><span data-i18n="verify_now">${tccT('verify_now')}</span></button>
+    <button class="tc-btn tc-btn-out" onclick="TC.step=1;tcRenderMain();"><span data-i18n="back">${tccT('back')}</span></button>
+  </div>`;
+}
+function tcS2go(){
+  const inp=document.getElementById('tc-phone'),err=document.getElementById('tc-e2');
+  if(!inp)return;
+  const normPhone=s=>String(s||'').replace(/[^0-9]/g,'').replace(/^0+/,'');
+  const v=inp.value.trim();
+  if(!v||v.replace(/[^0-9]/g,'').length<9){tcErr(err,tccT('phone_err_invalid'));return;}
+  const stored=normPhone(memVal(TC.member,'phone'));
+  const entered=normPhone(v);
+  if(!stored){tcErr(err,tccT('phone_err_notfound'));return;}
+  if(entered!==stored){tcErr(err,tccT('phone_err_mismatch'));return;}
+  TC.step=3;tcRenderMain();
+}
+
+// ── Step 3: รหัสผ่าน ───────────────────────────────────────────
+function tcS3Main(){
+  const hp=TC.appRow&&TC.appRow.PasswordHash?TC.appRow.PasswordHash:null;
+  return `${tcBarSteps(3)}
+  <div class="tc-card">
+    <div class="tc-card-ttl">${hp?tccT('tc_s3_title_login'):tccT('tc_s3_title_set')}</div>
+    <p style="font-size:.79rem;color:var(--t2);margin-bottom:14px;">
+      ${hp?tccT('tc_s3_hint_login'):tccT('tc_s3_hint_set')}
+    </p>
+    <div class="tc-grp">
+      <label class="tc-lbl">${hp?tccT('pw_label'):tccT('pw_new_label')}</label>
+      <input class="tc-inp" id="tc-pass" type="password" placeholder="••••••••" maxlength="64"
+        onkeydown="if(event.key==='Enter')tcS3go()">
+      <div class="tc-err" id="tc-e3" style="display:none;"></div>
+    </div>
+    ${!hp?`<div class="tc-grp"><label class="tc-lbl"><span data-i18n="confirm_password">${tccT('confirm_password')}</span></label>
+      <input class="tc-inp" id="tc-pass2" type="password" placeholder="••••••••" maxlength="64"
+        onkeydown="if(event.key==='Enter')tcS3go()">
+    </div>`:''}
+    <button class="tc-btn tc-btn-gold" onclick="tcS3go()">${hp?tccT('tc_s3_btn_login'):tccT('tc_s3_btn_set')}</button>
+    <button class="tc-btn tc-btn-out" onclick="TC.step=2;tcRenderMain();"><span data-i18n="back">${tccT('back')}</span></button>
+  </div>`;
+}
+async function tcS3go(){
+  const inp=document.getElementById('tc-pass'),err=document.getElementById('tc-e3');
+  if(!inp)return;
+  const pass=inp.value;
+  if(pass.length<6){tcErr(err,tccT('pw_error_short'));return;}
+  const hp=TC.appRow&&TC.appRow.PasswordHash?TC.appRow.PasswordHash:null;
+  const hash=await tcHash(pass);
+  if(hp){
+    if(hash!==hp){tcErr(err,tccT('pw_error_wrong'));return;}
+  }else{
+    const inp2=document.getElementById('tc-pass2');
+    if(inp2&&inp2.value!==pass){tcErr(err,tccT('pw_error_mismatch'));return;}
+    // บันทึก PasswordHash ลง Applications DB1
+    tcBarShow('loading',tccT('tc_s3_loading'));
+    try{
+      if(!TC.appId){
+        // ไม่มี applications record → สร้างใหม่
+        const res=await fetch(`${WORKER_URL}/api/applications`,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            Title:'REG-'+memVal(TC.member,'id'),
+            BNB_ID:memVal(TC.member,'id'),MemberName:memVal(TC.member,'name'),
+            Phone:TC.member['Phone']||'',Team:memVal(TC.member,'team'),
+            DesiredPosition:'ลงทะเบียน',   // ไม่ใช่ใบสมัครเทรดเดอร์ — แค่บันทึก PasswordHash
+            Status:'Registered',            // แยกออกจาก Pending ของใบสมัครจริง
+            PasswordHash:hash,SubmittedAt:new Date().toISOString(),UpdatedAt:new Date().toISOString(),
+          }),
+        });
+        if(!res.ok)throw new Error(tccT('tc_save_pw_fail')+' ('+res.status+')');
+        const created=await res.json();
+        TC.appRow=created;TC.appId=created.Id||created.id||null;
+        TC.traderApp=created;
+        if(TC.appRow)TC.appRow.PasswordHash=hash;
+      }else{
+        const res=await fetch(`${WORKER_URL}/api/applications/${TC.appId}`,{
+          method:'PATCH',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({PasswordHash:hash}),
+        });
+        if(!res.ok)throw new Error(tccT('tc_save_pw_fail')+' ('+res.status+')');
+        TC.appRow.PasswordHash=hash;
+      }
+      tcBarRemove();
+    }catch(e){tcBarShow('error','❌ '+e.message);return;}
+  }
+  TC.passwordHash=hash;
+  TC.step=4;tcRenderMain();
+}
+
+// ── Step 4: ใบสมัคร ────────────────────────────────────────────
+function tcS4Main(){
+  const m=TC.member;
+  if(!m){TC.step=1;tcRenderMain();return '';}
+  const name=memVal(m,'name');
+  return `${tcBarSteps(4)}
+  <div class="tc-card">
+    <div class="tc-card-ttl"><span data-i18n="member_step1">${tccT('member_step1')}</span></div>
+    <div style="display:grid;grid-template-columns:110px 1fr;gap:5px 12px;font-size:.82rem;">
+      <span style="color:var(--t2);">${tccT('tc_name')}</span><span style="font-weight:600;">${name}</span>
+      <span style="color:var(--t2);">BNB ID</span><span style="font-family:monospace;">${memVal(m,'id')}</span>
+      <span style="color:var(--t2);"><span data-i18n="team">${tccT('team')}</span></span><span>${memVal(m,'team')||'—'}</span>
+      <span style="color:var(--t2);">${tccT('tc_phone_lbl')}</span><span>${memVal(m,'phone')||'—'}</span>
+    </div>
+  </div>
+  <div class="tc-card">
+    <div class="tc-card-ttl">${tccT('tc_trader_title')}</div>
+    ${TC.traderApp?tcReadonlyCard(TC.traderApp,tccT('tc_trader_title')):tcTraderForm()}
+  </div>
+  <button class="tc-btn tc-btn-out" onclick="navTo('futures');" style="margin-top:4px;"><span data-i18n="back_trade">${tccT('back_trade')}</span></button>`;
+}
+
+// ── tcReadonlyCard ─────────────────────────────────────────────
+function tcReadonlyCard(app,title){
+  const st=app.Status||'Pending';
+  const isT=(app.DesiredPosition||'')==='เทรดเดอร์';
+  const stMap={
+    Approved:{bg:'rgba(34,197,94,.1)',bd:'rgba(34,197,94,.3)',msg:tccT('tc_status_approved')},
+    Rejected:{bg:'rgba(239,68,68,.1)',bd:'rgba(239,68,68,.3)',msg:tccT('tc_status_rejected')},
+    Editing:{bg:'rgba(251,191,36,.1)',bd:'rgba(251,191,36,.3)',msg:tccT('tc_status_editing')},
+    Pending:{bg:'rgba(96,165,250,.08)',bd:'rgba(96,165,250,.2)',msg:tccT('tc_status_pending')},
+  };
+  const sc=stMap[st]||stMap.Pending;
+  const fv=v=>v?tcFmtNum(v):'—';
+  const extraLines=(app.ExtraNote||'').split('\n');
+  const protect=extraLines[0]||'—';
+  const note=extraLines.slice(1).join('\n').trim();
+  return `<div style="background:${sc.bg};border:1px solid ${sc.bd};border-radius:8px;padding:10px 13px;margin-bottom:12px;font-size:.8rem;">
+    <div style="font-weight:600;">${sc.msg}</div>
+    ${app.AdminNote?`<div style="color:var(--t2);font-size:.74rem;margin-top:4px;">📝 ${tccT('note')}: ${app.AdminNote}</div>`:''}
+    <div style="color:var(--t2);font-size:.72rem;margin-top:4px;"><span data-i18n="edit_admin">${tccT('edit_admin')}</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:130px 1fr;gap:5px 12px;font-size:.8rem;margin-bottom:12px;">
+    <span style="color:var(--t2);">${tccT('tc_position')}</span><span style="font-weight:600;color:var(--y);">${app.DesiredPosition||'—'}</span>
+    <span style="color:var(--t2);">${tccT('tc_ref')}</span><span style="font-family:monospace;font-size:.74rem;">${app.Title||'—'}</span>
+    <span style="color:var(--t2);">${tccT('tc_submitted_at')}</span><span>${(app.SubmittedAt||'—').slice(0,10)}</span>
+    ${isT?`<span style="color:var(--t2);">${tccT('tc_protect_range')}</span><span style="color:var(--y);font-weight:600;">${protect}</span>`+
+      (note?`<span style="color:var(--t2);"><span data-i18n="save">${tccT('save')}</span></span><span>${note}</span>`:''):''}
+  </div>
+  <button class="tc-btn tc-btn-gold" onclick="tcDownloadPDF(true,TC.traderApp)" style="margin-bottom:0;">
+    ${tccT('tc_download_contract')}
+  </button>`;
+}
+
+// ── tcTraderForm ───────────────────────────────────────────────
+function tcTraderForm(){
+  return `<div id="tc-trader-form">
+    <div style="background:rgba(240,185,11,.07);border:1px solid rgba(240,185,11,.2);border-radius:8px;padding:10px 13px;margin-bottom:12px;font-size:.78rem;color:#ccc;">
+      ${tccT('tc_trader_info')}
+    </div>
+    <div class="tc-grp">
+      <label class="tc-lbl">${tccT('tc_protect_label')} <span style="color:var(--y)">*</span></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;" id="tc-protect-btns">
+        ${['$100 - $1,000','$1,000 - $10,000','$10,000 - $50,000','$50,000 - $100,000',tccT('tc_protect_opt5')].map(v=>
+          `<button type="button" class="tc-protect-opt" onclick="tcSelectProtect(this,'${v}')"
+            style="padding:7px 13px;border-radius:8px;border:1px solid rgba(240,185,11,.3);background:rgba(240,185,11,.06);color:var(--t1);font-size:.77rem;cursor:pointer;transition:all .18s;">
+            ${v}
+          </button>`
+        ).join('')}
+      </div>
+      <input type="hidden" id="tc-trader-protect" value="">
+      <div id="tc-protect-err" style="font-size:.72rem;color:#ef4444;margin-top:4px;display:none;">${tccT('tc_protect_err')}</div>
+    </div>
+    <div class="tc-grp">
+      <label class="tc-lbl"><span data-i18n="note">${tccT('note')}</span></label>
+      <textarea class="tc-inp" id="tc-trader-note" placeholder="${tccT('tc_note_detail')}" style="min-height:70px;"></textarea>
+    </div>
+    <div style="margin-top:10px;">
+      <div style="font-size:.8rem;color:var(--y);font-weight:600;margin-bottom:6px;">${tccT('tc_agreement_title')}</div>
+      <div class="tc-agree-scroll">${tcGetAgreementText('เทรดเดอร์')}</div>
+      <div class="tc-chk-row" style="margin-top:10px;">
+        <input type="checkbox" id="tc-trader-agree" onchange="document.getElementById('tc-trader-subm').disabled=!this.checked">
+        <label for="tc-trader-agree">${tccT('tc_agree_chk')}</label>
+      </div>
+      <button class="tc-btn tc-btn-gold" id="tc-trader-subm" onclick="tcSubmitTrader()" disabled style="margin-top:8px;">
+        ${tccT('submit_trader_app')}
+      </button>
+    </div>
+  </div>`;
+}
+
+// ── tcSelectProtect ────────────────────────────────────────────
+function tcSelectProtect(el,val){
+  document.querySelectorAll('.tc-protect-opt').forEach(b=>{
+    b.style.background='rgba(240,185,11,.06)';
+    b.style.borderColor='rgba(240,185,11,.3)';
+    b.style.color='var(--t1)';
+    b.style.fontWeight='400';
+  });
+  el.style.background='rgba(240,185,11,.22)';
+  el.style.borderColor='var(--y)';
+  el.style.color='var(--y)';
+  el.style.fontWeight='700';
+  const inp=document.getElementById('tc-trader-protect');
+  if(inp)inp.value=val;
+  const err=document.getElementById('tc-protect-err');
+  if(err)err.style.display='none';
+}
+
+// ── tcSubmitTrader ─────────────────────────────────────────────
+async function tcSubmitTrader(){
+  const btn=document.getElementById('tc-trader-subm');
+  const note=document.getElementById('tc-trader-note')?.value||'';
+  const protect=document.getElementById('tc-trader-protect')?.value||'';
+  if(!protect){
+    const err=document.getElementById('tc-protect-err');
+    if(err)err.style.display='block';
+    tcBarShow('error',tccT('tc_protect_err_select'));
+    return;
+  }
+  if(btn){btn.disabled=true;btn.textContent=tccT('btn_saving');}
+  tcBarShow('loading',tccT('tc_submit_loading'));
+  const now=new Date().toISOString(),m=TC.member;
+  const extraNote=protect+(note?'\n'+note:'');
+  const payload={
+    Title:`APP-${memVal(m,'id')}-T-${Date.now().toString(36).toUpperCase()}`,
+    BNB_ID:memVal(m,'id'),MemberName:memVal(m,'name'),Phone:m['Phone']||'',
+    Team:memVal(m,'team'),TargetMonths:0,TargetMembers:0,
+    TargetVolume:0,BonusAmount:0,MonthlyFee:0,
+    DesiredPosition:'เทรดเดอร์',ExtraNote:extraNote,
+    Status:'Pending',PasswordHash:TC.passwordHash,
+    SubmittedAt:now,UpdatedAt:now,
+  };
+  try{
+    const rr=await fetch(`${WORKER_URL}/api/applications`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+    });
+    if(!rr.ok)throw new Error(`HTTP ${rr.status}: ${(await rr.json().catch(()=>({}))).error||rr.statusText}`);
+    const res=await rr.json();
+    TC.traderApp={...payload,Id:res.Id||res.id};
+    if(!TC.appRow)TC.appRow=TC.traderApp;
+    tcBarRemove();
+    // ยื่นใบสมัครสำเร็จ → ไปหน้าเทรดทันที
+    setTimeout(()=>navTo('futures'), 600);
+  }catch(e){
+    tcBarRemove();tcBarShow('error',tccT('tc_submit_fail')+' '+e.message);
+    if(btn){btn.disabled=false;btn.textContent=tccT('submit_trader_app');}
+  }
+}
+
+// ── Step 5: สรุป ───────────────────────────────────────────────
+function tcS5Summary(){
+  const tApp=TC.traderApp;
+  return `${tcBarSteps(5)}
+  <div class="tc-card">
+    <div class="tc-success-box">
+      <div class="tc-si">🎉</div>
+      <div class="tc-st-title"><span data-i18n="submitted_ok">${tccT('submitted_ok')}</span></div>
+      <div class="tc-ss">${tccT('tc_review_note')}</div>
+    </div>
+    ${tApp?`<div style="background:rgba(240,185,11,.07);border:1px solid rgba(240,185,11,.2);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.82rem;">
+      🔰 <b>${tccT('tc_trader_badge')}</b> — ${tApp.Title||''}<br>
+      <span style="color:var(--t2);font-size:.74rem;">${tccT('tc_status_lbl')}: </span>${tcBadge(tApp.Status||'Pending')}
+    </div>`:''}
+    <button class="tc-btn tc-btn-gold" onclick="TC.step=4;tcRenderMain();"><span data-i18n="view_contract">${tccT('view_contract')}</span></button>
+    <button class="tc-btn tc-btn-out" onclick="navTo('futures');" style="margin-top:8px;"><span data-i18n="start_trade">${tccT('start_trade')}</span></button>
+  </div>`;
+}
+
+// ── tcGetAgreementText — เนื้อหาสัญญา 12 ส่วนเต็ม ──────────────
+function tcGetAgreementText(pos){
+  if(pos==='เทรดเดอร์'){
+    return `
+<h4 style="color:var(--y);margin:0 0 4px;">สัญญาบันทึกข้อตกลงการร่วมเทรด (Trading Partnership Agreement)</h4>
+<p style="color:var(--t2);font-size:.75rem;margin-bottom:10px;">Trader Café Club — ประเทศไทย</p>
+<table style="width:100%;border-collapse:collapse;margin-bottom:10px;font-size:.8rem;">
+  <tr><td style="padding:4px 8px;color:var(--t2);width:140px;">ระยะเวลารับประกัน</td><td style="padding:4px 8px;">3 เดือนแรก สำหรับสมาชิกใหม่</td></tr>
+  <tr><td style="padding:4px 8px;color:var(--t2);">อ้างอิงกฎหมาย</td><td style="padding:4px 8px;">ป.พ.พ. มาตรา 369–398 และ พ.ร.บ.สัญญาซื้อขาย พ.ศ.2562</td></tr>
+  <tr><td style="padding:4px 8px;color:var(--t2);">แพลตฟอร์ม</td><td style="padding:4px 8px;">Binance Exchange — บัญชีของสมาชิกเอง ไม่มีการโอนเงินให้บุคคลอื่น</td></tr>
+</table>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 1 — คู่สัญญา</h4>
+<p><b>ผู้ให้บริการ:</b> คณะกรรมการบริหารโครงการ Trader Café Club ประเทศไทย</p>
+<p><b>สมาชิก/ผู้เข้าร่วมเทรด:</b> ตามข้อมูลที่กรอกในใบสมัครฉบับนี้</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 2 — นิยามและคำจำกัดความ</h4>
+<p><b>"ระบบ"</b> — ระบบสัญญาณเทรดและโปรแกรมบริหารพอร์ตที่ผู้ดำเนินการพัฒนาและให้บริการ</p>
+<p><b>"พอร์ต"</b> — บัญชีซื้อขายสกุลเงินดิจิทัลบน Binance ที่อยู่ในชื่อของสมาชิกเอง</p>
+<p><b>"กำไรสุทธิ"</b> — ผลต่างระหว่างมูลค่าพอร์ตสิ้นงวดกับต้นงวด หลังหักค่าธรรมเนียมแพลตฟอร์ม</p>
+<p><b>"Liquidity Claim"</b> — การขอเบิกเงินชดเชยกรณีพอร์ตได้รับความเสียหาย</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 3 — วัตถุประสงค์และระยะเวลา</h4>
+<p>สัญญาฉบับนี้กำหนดสิทธิ หน้าที่ และความรับผิดชอบในการร่วมใช้บริการระบบสัญญาณเทรดผ่าน Binance <b>สมาชิกยังคงเป็นเจ้าของบัญชีและสินทรัพย์ทั้งหมด</b> ผู้ดำเนินการให้บริการสัญญาณและกลยุทธ์เท่านั้น</p>
+<p>ระยะเวลา: <b>12 เดือน</b> ต่ออายุอัตโนมัติหากไม่แจ้งยกเลิกล่วงหน้า 30 วัน สมาชิกใหม่ได้รับการรับประกัน <b>3 เดือนแรก</b></p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 4 — สิทธิและหน้าที่</h4>
+<p><b>หน้าที่ผู้ดำเนินการ:</b></p>
+<ul style="padding-left:16px;margin:4px 0 8px;">
+  <li>จัดหาและส่งสัญญาณเทรดอย่างสม่ำเสมอและทันเวลา</li>
+  <li>ให้ข้อมูล คำแนะนำ และการฝึกอบรมที่เกี่ยวข้อง</li>
+  <li>ตรวจสอบและพิจารณาคำขอ Liquidity Claim ภายในระยะเวลาที่กำหนด</li>
+  <li>รักษาความลับข้อมูลส่วนบุคคลตาม PDPA พ.ศ.2562</li>
+  <li>สำรองจ่ายส่วนต่างรายได้ขั้นต่ำกรณีกำไรไม่ถึง 10%</li>
+</ul>
+<p><b>หน้าที่สมาชิก:</b></p>
+<ul style="padding-left:16px;margin:4px 0 8px;">
+  <li>เทรดผ่านบัญชี Binance ของตนเองเท่านั้น</li>
+  <li><b>ห้าม</b>โอนเงินหรือมอบ Login Credentials ให้บุคคลใดโดยเด็ดขาด</li>
+  <li>ปฏิบัติตามกฎระเบียบการเทรดของระบบโดยเคร่งครัด</li>
+  <li>ชำระส่วนแบ่งรายได้ตรงเวลาตามอัตราที่กำหนด</li>
+  <li>แจ้งผู้ดำเนินการทันทีหากบัญชีถูกระงับหรือมีเหตุผิดปกติ</li>
+</ul>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 5 — สัดส่วนรายได้จากกำไรสุทธิ</h4>
+<table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-bottom:8px;">
+  <thead><tr style="background:rgba(240,185,11,.15);">
+    <th style="padding:5px 8px;text-align:left;">#</th><th style="padding:5px 8px;text-align:left;"><span data-i18n="income_type">${tccT('income_type')}</span></th>
+    <th style="padding:5px 8px;text-align:center;">สัดส่วน</th><th style="padding:5px 8px;text-align:left;">คำอธิบาย</th>
+  </tr></thead>
+  <tbody>
+    <tr><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">1</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);"><span data-i18n="team_comm_title">${tccT('team_comm_title')}</span></td><td style="padding:4px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.06);">10%</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">ค่าตอบแทนทีมงานและเครือข่าย</td></tr>
+    <tr><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">2</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">ประกันรายได้</td><td style="padding:4px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.06);">10%</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">กองทุนสำรองประกันรายได้ขั้นต่ำ</td></tr>
+    <tr><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);"><b style="color:var(--y);">3</b></td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);font-weight:600;color:var(--y);"><span data-i18n="income_trader">${tccT('income_trader')}</span></td><td style="padding:4px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.06);font-weight:600;color:var(--y);">40%</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">กำไรสุทธิที่สมาชิกได้รับโดยตรง</td></tr>
+    <tr><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">4</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">บริหารระบบ</td><td style="padding:4px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.06);">40%</td><td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06);">ค่าบริหารและพัฒนาระบบ</td></tr>
+    <tr style="background:rgba(240,185,11,.08);"><td colspan="2" style="padding:5px 8px;font-weight:700;"><span data-i18n="total_all">${tccT('total_all')}</span></td><td style="padding:5px 8px;text-align:center;font-weight:700;">100%</td><td style="padding:5px 8px;">จากกำไรสุทธิ (Net Profit)</td></tr>
+  </tbody>
+</table>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 6 — Liquidity Claim</h4>
+<p>กรณีพอร์ตเสียหาย สมาชิกมีสิทธิยื่นคำขอเคลมได้เมื่อ: ไม่เคยกระทำผิดเงื่อนไข / ไม่มีหนี้ค้างชำระ / ยื่นเอกสารครบถ้วน</p>
+<p>ระยะเวลา: ประเภท 1 ≤7 วัน | ประเภท 2 ≤15 วัน | ประเภท 3 ≤30 วัน | ประเภท 4 ≤45 วัน</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 7 — การรับประกันรายได้ขั้นต่ำ</h4>
+<p>ใน 3 เดือนแรก: ประกันกำไรขั้นต่ำ <b>10% ต่อเดือน</b> กรณีกำไรต่ำกว่า 10% ผู้ดำเนินการสำรองจ่ายส่วนต่างภายใน 7 วันทำการ</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 8 — ความปลอดภัยของเงินทุน</h4>
+<p>สินทรัพย์ในพอร์ตเป็นกรรมสิทธิ์ของสมาชิก <b>100%</b> ตลอดเวลา ผู้ดำเนินการไม่มีสิทธิ์เข้าถึงหรือโอนสินทรัพย์ใดๆ</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 9 — การรักษาความลับ (PDPA)</h4>
+<p>คู่สัญญาตกลงรักษาข้อมูลลับไว้เป็นความลับ ไม่เปิดเผยต่อบุคคลภายนอก ภาระผูกพันนี้มีผลต่อไปอีก <b>2 ปี</b> หลังสัญญาสิ้นสุด</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 10 — การบอกเลิกสัญญา</h4>
+<p>แจ้งล่วงหน้า 30 วัน หรือบอกเลิกทันทีหากฝ่ายใดฝ่ายหนึ่งผิดสัญญาในสาระสำคัญ สัญญาต่ออายุอัตโนมัติทุก 12 เดือน</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 11 — การระงับข้อพิพาท</h4>
+<p>เจรจาระงับโดยสุจริตก่อน หากไม่สำเร็จภายใน 30 วัน ให้นำคดีขึ้นสู่ <b>ศาลแพ่งกรุงเทพใต้</b> ภายใต้กฎหมายแห่งราชอาณาจักรไทย</p>
+<h4 style="color:var(--y);margin:10px 0 4px;">ส่วนที่ 12 — บทบัญญัติทั่วไป</h4>
+<ul style="padding-left:16px;margin:4px 0;">
+  <li>การแก้ไขสัญญาต้องกระทำเป็นลายลักษณ์อักษรและลงนามโดยคู่สัญญาทั้งสองฝ่าย</li>
+  <li>หากข้อกำหนดใดตกเป็นโมฆะ ข้อกำหนดส่วนที่เหลือยังคงมีผลบังคับใช้ต่อไป</li>
+  <li>สัญญาฉบับนี้จัดทำขึ้น 2 ฉบับ มีข้อความตรงกัน คู่สัญญาแต่ละฝ่ายเก็บไว้ฝ่ายละ 1 ฉบับ</li>
+</ul>`;
+  }
+  return '<p style="color:var(--t2);font-size:.8rem;">—</p>';
+}
+
+// ── tcDownloadPDF ─────────────────────────────────────────────
+function tcDownloadPDF(isTrader, appData){
+  const r=(appData&&typeof appData==='object')?appData:(TC.appRow||{});
+  const m=TC.member||{};
+  const today=new Date().toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
+  const name=r.MemberName||memVal(m,'name')||'';
+  const phone=r.Phone||m['Phone']||'';
+  const bnbId=r.BNB_ID||memVal(m,'id')||'';
+  const ref=r.Title||'';
+  const extraLines=(r.ExtraNote||'').split('\n');
+  const protectAmt=extraLines[0]||'—';
+  const appStatus=r.Status||'Pending';
+  const isApproved=appStatus==='Approved';
+  const approvedDate=isApproved?(r.UpdatedAt||r.SubmittedAt||'').slice(0,10):'';
+  const wmText=isApproved?'✓ อนุมัติแล้ว':'รอการอนุมัติ';
+  const wmColor=isApproved?'#007700':'#cc0000';
+
+  const wmBlock=Array.from({length:9},(_,i)=>{
+    const row=Math.floor(i/3),col=i%3;
+    return `<div style="position:absolute;top:${15+row*33}%;left:${col*36-5}%;transform:rotate(-35deg);font-size:52px;font-weight:900;font-family:'Sarabun',sans-serif;opacity:.07;white-space:nowrap;color:${wmColor};">${wmText}</div>`;
+  }).join('');
+
+  const css=`*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Sarabun',sans-serif;font-size:14px;color:#1a1a1a;background:#fff;padding:36px 40px;}
+.dh{text-align:center;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #1F3864;}
+.dlogo{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#f0b90b,#c99a00);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.3rem;color:#000;margin:0 auto 8px;}
+h1{font-size:1.25rem;font-weight:700;color:#1F3864;margin-bottom:4px;}
+.dsub{font-size:.82rem;color:#555;margin-top:2px;}
+.dmeta{display:flex;justify-content:space-between;background:#f5f7fb;border:1px solid #dde3ef;border-radius:6px;padding:7px 14px;margin-bottom:18px;font-size:.8rem;color:#333;}
+h2{font-size:.95rem;font-weight:700;color:#1F3864;margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #dde3ef;}
+h3{font-size:.88rem;font-weight:600;color:#333;margin:10px 0 5px;}
+p{font-size:.85rem;color:#333;line-height:1.8;margin-bottom:7px;}
+ul{padding-left:18px;margin-bottom:7px;}li{font-size:.85rem;color:#333;line-height:1.8;}
+table{width:100%;border-collapse:collapse;margin-bottom:10px;}
+td,th{border:1px solid #dde3ef;padding:6px 11px;font-size:.83rem;}
+.dl{background:#f5f7fb;font-weight:600;color:#1F3864;width:190px;}
+.hdr th{background:#1F3864;color:#fff;font-weight:600;}
+.tot{background:#fffbeb;}.pct{text-align:center;font-weight:600;}.gold{color:#b8860b;}
+.sig-row{display:flex;gap:50px;margin:26px 0 14px;}
+.sig-box{flex:1;text-align:center;}.sig-line{height:1px;background:#aaa;margin-bottom:7px;}
+.sig-box p{font-size:.82rem;color:#333;margin:2px 0;}.sub{font-size:.76rem;color:#666;}
+.foot{text-align:center;font-size:.73rem;color:#888;margin-top:14px;padding-top:10px;border-top:1px solid #dde3ef;}
+.wm-wrap{position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden;}
+.wm-info{position:fixed;bottom:0;left:0;right:0;background:#f5f7fb;border-top:2px solid #dde3ef;
+  padding:6px 20px;display:flex;justify-content:space-between;font-size:.72rem;color:#555;}
+@media print{body{padding:18px;}@page{margin:14mm;size:A4;}.wm-info{position:fixed;bottom:0;left:0;right:0;}}`;
+
+  const sigBlock=`
+<div class="sig-row">
+  <div class="sig-box">
+    <div class="sig-line"></div>
+    <p><b>${name}</b></p>
+    <p class="sub">ผู้สมัคร / สมาชิก</p>
+    <p class="sub">วันที่: ${today}</p>
+  </div>
+  <div class="sig-box">
+    <div class="sig-line"></div>
+    <p><b>คณะกรรมการบริหาร TCC</b></p>
+    <p class="sub">Trader Café Club ประเทศไทย</p>
+    <p class="sub">${isApproved?`✅ อนุมัติวันที่: ${approvedDate}`:'วันที่: ...........................'}</p>
+  </div>
+</div>
+<div class="foot">
+  เอกสารนี้สร้างโดยระบบ Trader Café Club — Easy Trade | อ้างอิง: ${ref} | พิมพ์วันที่: ${today}<br>
+  ${isApproved?'<b style="color:#007700;">✅ เอกสารนี้ได้รับการอนุมัติแล้ว มีผลผูกพันทางกฎหมาย</b>':'<b style="color:#cc0000;">⚠️ รอการอนุมัติ — เอกสารนี้ยังไม่มีผลผูกพันทางกฎหมายจนกว่าจะได้รับการอนุมัติ</b>'}
+</div>`;
+
+  const body=`<div class="dh"><div class="dlogo">TCC</div>
+    <h1>สัญญาบันทึกข้อตกลงการร่วมเทรด</h1>
+    <p class="dsub">Trading Partnership Agreement</p>
+    <p class="dsub">Trader Café Club — ประเทศไทย</p></div>
+    <div class="dmeta"><span>เลขที่: <b>${ref}</b></span><span>วันที่: <b>${today}</b></span><span>สถานะ: <b>${isApproved?'✅ อนุมัติแล้ว':'⏳ รออนุมัติ'}</b></span></div>
+    <table>
+      <tr><td class="dl">ระยะเวลารับประกัน</td><td>3 เดือนแรก สำหรับสมาชิกใหม่ที่เข้าร่วมโครงการ</td></tr>
+      <tr><td class="dl">อ้างอิงกฎหมาย</td><td>ป.พ.พ. มาตรา 369–398 และ พ.ร.บ.สัญญาซื้อขาย พ.ศ.2562</td></tr>
+      <tr><td class="dl">แพลตฟอร์มการเทรด</td><td>Binance Exchange — บัญชีของสมาชิกเอง</td></tr>
+    </table>
+    <h2>ส่วนที่ 1 — คู่สัญญา</h2>
+    <h3>1.1 ฝ่ายที่หนึ่ง — ผู้ให้บริการระบบเทรด</h3>
+    <table><tr><td class="dl">ชื่อโครงการ</td><td>คณะกรรมการบริหารโครงการ Trader Café Club ประเทศไทย</td></tr></table>
+    <h3>1.2 ฝ่ายที่สอง — สมาชิก / ผู้เข้าร่วมเทรด</h3>
+    <table>
+      <tr><td class="dl"><span data-i18n="fullname">${tccT('fullname')}</span></td><td>${name}</td></tr>
+      <tr><td class="dl"><span data-i18n="phone">${tccT('phone')}</span></td><td>${phone}</td></tr>
+      <tr><td class="dl">Binance Account ID</td><td>${bnbId}</td></tr>
+      <tr><td class="dl">วงเงินคุ้มครองการเทรด</td><td>${protectAmt}</td></tr>
+    </table>
+    <h2>ส่วนที่ 5 — สัดส่วนรายได้จากกำไรสุทธิ</h2>
+    <table><thead class="hdr"><tr><th>#</th><th><span data-i18n="income_type">${tccT('income_type')}</span></th><th>สัดส่วน</th><th>คำอธิบาย</th></tr></thead>
+      <tr><td>1</td><td><span data-i18n="team_comm_title">${tccT('team_comm_title')}</span></td><td class="pct">10%</td><td>ค่าตอบแทนทีมงานและเครือข่าย</td></tr>
+      <tr><td>2</td><td>ประกันรายได้</td><td class="pct">10%</td><td>กองทุนสำรองประกันรายได้ขั้นต่ำ</td></tr>
+      <tr><td>3</td><td class="gold"><b><span data-i18n="income_trader">${tccT('income_trader')}</span></b></td><td class="pct gold"><b>40%</b></td><td>กำไรสุทธิที่สมาชิกได้รับโดยตรง</td></tr>
+      <tr><td>4</td><td>บริหารระบบ</td><td class="pct">40%</td><td>ค่าบริหารและพัฒนาระบบ</td></tr>
+      <tr class="tot"><td colspan="2"><b><span data-i18n="total_all">${tccT('total_all')}</span></b></td><td class="pct"><b>100%</b></td><td>จากกำไรสุทธิ (Net Profit)</td></tr>
+    </table>
+    <h2>ส่วนที่ 7 — การรับประกันรายได้ขั้นต่ำ</h2>
+    <p>ใน 3 เดือนแรก: ประกันกำไรขั้นต่ำ <b>10% ต่อเดือน</b> กรณีกำไรต่ำกว่า 10% ผู้ดำเนินการสำรองจ่ายส่วนต่างภายใน 7 วันทำการ</p>
+    <h2>ส่วนที่ 8 — ความปลอดภัยของเงินทุน</h2>
+    <p>สินทรัพย์ในพอร์ตเป็นกรรมสิทธิ์ของสมาชิก <b>100%</b> ตลอดเวลา ผู้ดำเนินการไม่มีสิทธิ์เข้าถึงหรือโอนสินทรัพย์ใดๆ</p>
+    <h2>ส่วนที่ 10 — การบอกเลิกสัญญา</h2>
+    <p>แจ้งล่วงหน้า 30 วัน หรือบอกเลิกทันทีหากฝ่ายใดฝ่ายหนึ่งผิดสัญญาในสาระสำคัญ สัญญาต่ออายุอัตโนมัติทุก 12 เดือน</p>
+    <h2>ส่วนที่ 11 — การระงับข้อพิพาท</h2>
+    <p>ข้อพิพาทอยู่ภายใต้ <b>กฎหมายแห่งราชอาณาจักรไทย</b> นำคดีขึ้นสู่ <b>ศาลแพ่งกรุงเทพใต้</b></p>
+    ${sigBlock}`;
+
+  const html=`<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
+<title>สัญญาการร่วมเทรด — ${name}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>${css}</style></head>
+<body>
+<div class="wm-wrap">${wmBlock}</div>
+${body}
+<div class="wm-info">
+  <span>เอกสารอ้างอิง: ${ref}</span>
+  <span>${isApproved?`✅ อนุมัติวันที่: ${approvedDate}`:`⚠️ สถานะ: รอการอนุมัติ — เอกสารนี้ยังไม่มีผลผูกพันทางกฎหมาย`}</span>
+  <span>พิมพ์วันที่: ${today}</span>
+</div>
+</body></html>`;
+
+  const w=window.open('','_blank','width=900,height=700');
+  if(!w){alert(tccT('alert_allow_popup'));return;}
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),800);
+}
+
+
+// ── lgLogout — เรียกจากปุ่ม Log Out ในหน้า Profile ──────────────
+function lgLogout() {
+  // ล้าง cache ของ member
+  try {
+    const uid = USER_PROFILE && USER_PROFILE.uid;
+    if (uid && typeof LS !== 'undefined') {
+      LS.del('member_' + uid);
+      LS.del('dash_' + uid);
+    }
+    // [FIX-LOGOUT-STALE] ล้าง session cache เต็มรูปแบบ (tcc_trans_/positions_/trades_/spot_/funding_/dash_
+    // ของ uid นี้ + กวาด cache ค้างของ uid อื่น) — เหมือนที่ทำตอน loadOfflineState()
+    if (uid && typeof _clearSessionCache === 'function') _clearSessionCache(uid);
+  } catch(e) {}
+  // ล้าง MEMBERS cache
+  try { sessionStorage.removeItem(SS_MEMBERS); MEMBERS = []; } catch(e) {}
+  // reset TC state
+  try {
+    TC.step=1; TC.member=null; TC.traderApp=null;
+    TC.appRow=null; TC.appId=null; TC.passwordHash='';
+  } catch(e) {}
+  // [FIX-LOGOUT-STALE] ล้างข้อมูลสมาชิกคนเดิมที่ค้างอยู่ใน memory (ไม่ใช่ localStorage)
+  // บั๊กเดิม: ถ้า login สมาชิกคนใหม่ต่อทันทีบนแท็บเดียวกันโดยไม่ reload หน้า
+  // HIST.*, S.positions และ _histFirstLoaded flags จะยังเก็บของสมาชิกคนก่อนอยู่
+  // ทำให้ _mergeIntoHIST() เข้าโหมด append ทับ ไม่ใช่ replace → ข้อมูลปนกัน
+  try {
+    if (typeof HIST !== 'undefined') {
+      HIST.orderHistory       = [];
+      HIST.positionHistory    = [];
+      HIST.tradeHistory       = [];
+      HIST.transactionHistory = [];
+      HIST.fundingFee         = [];
+      HIST.spotOrderHistory   = [];
+      HIST.spotTradeHistory   = [];
+      HIST._openPosRegistry   = {};
+    }
+  } catch(e) {}
+  try {
+    if (typeof S !== 'undefined') S.positions = [];
+  } catch(e) {}
+  try {
+    if (typeof _histFirstLoaded !== 'undefined') {
+      Object.keys(_histFirstLoaded).forEach(k => { delete _histFirstLoaded[k]; });
+    }
+  } catch(e) {}
+  // [NEW v4] ล้าง state ของ Commission tab overlay/iframe ด้วย — กันข้อมูล commission ของ user เดิม
+  // ค้างอยู่ (ทั้งใน memory ของ index.html และใน iframe ของ member2.html) ถ้า login user ใหม่ต่อทันที
+  // บนแท็บเดียวกันโดยไม่ reload หน้า (เคสเดียวกับที่ HIST/S.positions ถูกล้างด้านบน)
+  try {
+    _commissionLoaded = false;
+    _commTabLastUid = '';
+    _commTabLastMs = 0;
+    _astCommDashUid = '';
+    const _frame = document.getElementById('astCommDashFrame');
+    if (_frame) _frame.src = 'about:blank';
+    const _overlay = document.getElementById('astCommDashOverlay');
+    if (_overlay) _overlay.style.display = 'none';
+  } catch(e) {}
+  // ล้าง session และไปหน้า login
+  _lgClearSession();
+}
+
+// ══════════════════════════════════════════════════════
+//  [v9] Hardware Back Button + Soft Refresh
+// ══════════════════════════════════════════════════════
+
+// ── Page history stack (สำหรับ back button) ──
+let pageHistory = [];
+const _FIRST_PAGES = ['futures', 'assets', 'home', 'login'];
+
+// ── Push state ใหม่ทุกครั้งที่ navTo เปลี่ยนหน้า (เรียกจาก _navToTrackHistory) ──
+function _navToTrackHistory(target) {
+  if (currentPage && currentPage !== target) {
+    pageHistory.push(currentPage);
+    if (pageHistory.length > 30) pageHistory.shift();
+  }
+  try { history.pushState({ tccPage: target }, '', '#' + target); } catch(e) {}
+}
+
+// ── Hardware/Browser Back ──
+window.addEventListener('popstate', function(e) {
+  handleBackButton();
+});
+
+// === [FIX v9.1] Hardware Back Button — debounce ป้องกัน double trigger ===
+let _lastBackTime = 0;
+function handleBackButton() {
+  const now = Date.now();
+  if (now - _lastBackTime < 500) return; // debounce 500ms
+  _lastBackTime = now;
+
+  // ปิด sheet/modal ที่เปิดอยู่ก่อน (ถ้ามี) แทนการเปลี่ยนหน้า
+  const openSheet = document.querySelector('.ast-bottom-sheet.open, .ddl-bottom-sheet.open');
+  if (openSheet) {
+    openSheet.classList.remove('open');
+    document.querySelectorAll('.ast-sheet-overlay.visible, .ddl-sheet-overlay.open').forEach(o => {
+      o.classList.remove('visible'); o.classList.remove('open');
+    });
+    try { history.pushState({ tccPage: currentPage }, '', '#' + currentPage); } catch(e) {}
+    return;
+  }
+
+  if (_FIRST_PAGES.includes(currentPage) || !pageHistory.length) {
+    showExitConfirm();
+    try { history.pushState({ tccPage: currentPage }, '', '#' + currentPage); } catch(e) {}
+    return;
+  }
+
+  const prev = pageHistory.pop();
+  // [FIX back] ถ้า prev เป็น format 'assets__<tab>' → navTo assets แล้ว restore sub-tab
+  if (prev && prev.startsWith('assets__')) {
+    const subTab = prev.replace('assets__', '');
+    navTo('assets');
+    // restore sub-tab หลัง navTo render เสร็จ (rAF ให้ DOM ready ก่อน)
+    requestAnimationFrame(() => {
+      if (typeof astSwitchTabByName === 'function') astSwitchTabByName(subTab);
+    });
+  } else {
+    navTo(prev);
+  }
+}
+
+// === [FIX v9.2] Exit Confirm — กลับหน้าเทรด + เก็บ session ไว้ ===
+function showExitConfirm() {
+  document.getElementById('exit-overlay')?.classList.add('visible');
+  document.getElementById('exit-sheet')?.classList.add('open');
+}
+function cancelExitApp() {
+  document.getElementById('exit-overlay')?.classList.remove('visible');
+  document.getElementById('exit-sheet')?.classList.remove('open');
+}
+function confirmExitApp() {
+  cancelExitApp(); // ปิด overlay ก่อน
+  // กลับไปหน้าเทรด (session ยังคงอยู่ — ไม่ล้าง localStorage)
+  navTo('futures');
+}
+
+// ── Soft Refresh: รีโหลดข้อมูลของหน้าปัจจุบันโดยไม่ reload ทั้งหน้า ──
+let _softRefreshing = false;
+let _lastSoftRefresh = 0;
+const SOFT_REFRESH_DEBOUNCE_MS = 2000; // กันกดรัวๆ
+
+// ── [v12 FIX 1] clearAllStaleCache — ล้าง cache ที่หมดอายุ/ค้างทั้งหมดใน localStorage ──
+// เรียกก่อน softRefreshCurrentPage() เพื่อบังคับ fetch ข้อมูลใหม่จาก GAS ทุกครั้ง
+// ไม่แตะ: tcc_login_session, tcc_remember_me, tcc_uid, tcc_lastCoin, hl_stars, tcc_prod_clean_v1, tcc_ref
+function clearAllStaleCache() {
+  const KEEP_KEYS = new Set([
+    'tcc_login_session', 'tcc_remember_me', 'tcc_uid',
+    'tcc_lastCoin', 'hl_stars', 'tcc_prod_clean_v1', 'tcc_ref',
+  ]);
+  try {
+    const now = Date.now();
+    Object.keys(localStorage).forEach(k => {
+      if (KEEP_KEYS.has(k)) return;
+      if (!k.startsWith('tcc_')) return;
+      try {
+        const v = JSON.parse(localStorage.getItem(k));
+        // ลบ: หมดอายุ, หรือเป็น session data cache (SESSION_CACHE_KEYS)
+        const isSessionData = (typeof SESSION_CACHE_KEYS !== 'undefined') &&
+          SESSION_CACHE_KEYS.some(prefix => k.startsWith('tcc_' + prefix));
+        const isExpired = v && v._exp && v._exp < now;
+        if (isSessionData || isExpired) localStorage.removeItem(k);
+      } catch { localStorage.removeItem(k); }
+    });
+    // [FIX-RECOVERY] ลอง flush คำสั่งค้างก่อนลบ queue (best-effort)
+    try { QUEUE.flush(); } catch(e) {}
+    // ล้าง write/dead queue ค้าง
+    try { localStorage.removeItem('tcc__write_queue'); } catch(e) {}
+    try { localStorage.removeItem('tcc__dead_queue'); } catch(e) {}
+    // reset _contractDDMap เพื่อบังคับ fetch drawdown_pct ใหม่จาก getContractStatus
+    window._contractDDMap = {};
+    // reset first-load flags ใน HIST
+    if (typeof _histFirstLoaded !== 'undefined') {
+      Object.keys(_histFirstLoaded).forEach(k => { delete _histFirstLoaded[k]; });
+    }
+    console.log('[clearAllStaleCache] done');
+  } catch(e) {
+    console.warn('[clearAllStaleCache] error:', e);
+  }
+}
+
+async function softRefreshCurrentPage() {
+  const now = Date.now();
+  if (_softRefreshing) return;
+  if (now - _lastSoftRefresh < SOFT_REFRESH_DEBOUNCE_MS) {
+    showToast(tccT('toast_refreshing'));
+    return;
+  }
+  _lastSoftRefresh = now;
+  _softRefreshing = true;
+  const fab = document.getElementById('fabRefresh');
+  if (fab) fab.classList.add('spinning');
+
+  try {
+    // [v12 FIX 1] ล้าง stale cache ก่อนทุกครั้งที่ Refresh เพื่อบังคับ fetch ใหม่จาก GAS
+    clearAllStaleCache();
+
+    // [v9] ทุกหน้า: โหลด offline state (positions + earnContracts + openOrders) จาก GAS
+    // [v5 FIX] ลบ syncEarnContractsToGAS(false) ออก — ไม่มีประโยชน์และเสี่ยง
+    // เหตุผล: loadOfflineState() เพิ่งดึงข้อมูลสดจาก GAS มาแล้ว
+    // การ sync กลับทันทีหลังจากนั้น = ส่ง local state (ที่เพิ่ง copy มาจาก GAS) กลับ GAS ซ้ำโดยไม่จำเป็น
+    // syncEarnContractsToGAS ถูกเรียกใน syncOfflineEngine() ตอน startup เท่านั้น (ก่อน loadOfflineState)
+    if (typeof loadOfflineState === 'function') await loadOfflineState();
+
+    // [v17 FIX] เดิม loadDashboard() ถูกเรียกแค่ตอน currentPage ตกไปที่ default: เท่านั้น
+    // ทำให้ Position History / Order History / Funding Fee History ไม่ถูก merge เข้า HIST เลย
+    // เมื่อกดรีเฟรชตอนอยู่หน้า 'futures' (หน้าเทรดหลักที่สมาชิกอยู่บ่อยที่สุด)
+    // ย้ายมาเรียกร่วมกันทุกหน้าตรงนี้แทน — loadDashboard() ปลอดภัยเพราะแก้แค่ HIST/balance/profile ไม่แตะ S.positions
+    if (typeof loadDashboard === 'function') await loadDashboard();
+
+    switch (currentPage) {
+      case 'futures':
+        if (typeof fetchAllMids === 'function') await fetchAllMids();
+        // [v17 FIX] ดึง TP/SL + DD/Liq สดจาก GAS ทุกครั้งที่กดรีเฟรชหน้าเทรด
+        // เดิมฟังก์ชันนี้ถูกเรียกแค่ตอนเปิด My Trades overlay เท่านั้น → กดปุ่มรีเฟรชไม่ดึง TP/SL เลย
+        if (typeof loadOpenPositionsWithDD === 'function') await loadOpenPositionsWithDD();
+        if (typeof renderPositions === 'function') renderPositions();
+        if (typeof renderEarnContracts === 'function') renderEarnContracts();
+        if (typeof updatePositionsPNL === 'function') updatePositionsPNL();
+        break;
+      case 'trade':
+        if (typeof loadSpotData === 'function') await loadSpotData();
+        if (typeof fetchSpOB === 'function') await fetchSpOB();
+        break;
+      case 'markets':
+        if (typeof loadMarketData === 'function') await loadMarketData();
+        break;
+      case 'assets':
+        if (typeof updateOverviewBalances === 'function') updateOverviewBalances();
+        if (typeof _astRefreshBalanceIfStale === 'function') await _astRefreshBalanceIfStale(true);
+        if (typeof astUpdateTime === 'function') astUpdateTime();
+        if (typeof renderEarnContracts === 'function') renderEarnContracts();
+        break;
+      case 'home':
+        if (typeof _homeInit === 'function') _homeInit();
+        break;
+      case 'profile':
+      case 'account-info':
+        if (typeof _profileRender === 'function') _profileRender();
+        if (typeof updateOverviewBalances === 'function') updateOverviewBalances();
+        break;
+      default:
+        // [v17 FIX] loadDashboard() ย้ายไปเรียกร่วมกันด้านบนแล้ว ไม่ต้องเรียกซ้ำที่นี่
+        break;
+    }
+    showToast(tccT('toast_refreshed'));
+  } catch (e) {
+    console.warn('[softRefresh]', e);
+    showToast(tccT('toast_refresh_fail'));
+  } finally {
+    _softRefreshing = false;
+    if (fab) fab.classList.remove('spinning');
+  }
+}
+
+
+</script>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE: Terms & Conditions + Trader Application
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-termcondition">
+  <!-- Header -->
+  <div class="page-termcondition-header">
+    <button onclick="navTo('profile')" style="background:none;border:none;color:var(--y);font-size:1.2rem;cursor:pointer;padding:0 6px 0 0;">←</button>
+    <span style="font-size:.95rem;font-weight:700;color:var(--y);">🧾 Terms &amp; Conditions</span>
+  </div>
+
+  <!-- TC App Root -->
+  <div style="padding:14px 14px 80px;" id="tc-app-root-main">
+    <!-- tcRenderMain() จะ inject HTML ที่นี่ -->
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     [v9] Back Button Exit Confirm + Soft Refresh FAB
+══════════════════════════════════════════════════════ -->
+<div class="ast-sheet-overlay" id="exit-overlay" onclick="cancelExitApp()"></div>
+<div class="ast-bottom-sheet" id="exit-sheet">
+  <div class="exit-sheet">
+    <div class="exit-sheet-title">กลับหน้าหลัก?</div>
+    <div class="exit-sheet-sub">ระบบจะจำการล็อกอินของคุณไว้ ไม่ต้องเข้าสู่ระบบใหม่</div>
+    <div class="exit-sheet-actions">
+      <button class="exit-btn-cancel" onclick="cancelExitApp()"><span data-i18n="cancel">ยกเลิก</span></button>
+      <button class="exit-btn-confirm" onclick="confirmExitApp()"><span data-i18n="back">← ออก</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE: TCC Loan — Main
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-loan">
+  <!-- Header -->
+  <div class="loan-header">
+    <button class="loan-back-btn" onclick="navTo('profile')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="loan-header-title">TCC Loans</span>
+    <button class="loan-history-btn" onclick="loanOpenHistory()" title="Loan History">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    </button>
+  </div>
+
+  <div style="overflow-y:auto;height:calc(100vh - 56px);padding-bottom:80px;">
+    <!-- Flexible Rate Loan Card -->
+    <div style="padding:16px 16px 0;">
+      <div class="loan-main-card">
+        <div class="loan-main-card-title">Flexible Rate Loan</div>
+        <div class="loan-main-card-sub">ชำระคืนได้ทุกเวลา • ไม่มีค่าธรรมเนียม</div>
+        <button class="loan-start-btn" onclick="navTo('loan-flexible')"><span data-i18n="start_borrow">เริ่มกู้ยืม</span></button>
+      </div>
+    </div>
+
+    <!-- Popular Assets -->
+    <div style="padding:20px 16px 0;">
+      <div class="loan-section-title">Popular Assets</div>
+      <div class="loan-rate-table">
+        <div class="loan-rate-header">
+          <span>Coin</span>
+          <span>Annualized Rate</span>
+        </div>
+        <div class="loan-rate-row" onclick="navTo('loan-flexible');loanSetBorrow('USDT')">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="loan-coin-ico" style="background:#26A17B;">₮</div>
+            <span class="loan-coin-name">USDT</span>
+          </div>
+          <span class="loan-rate-val" id="loan-rate-usdt">3.64% ›</span>
+        </div>
+        <div class="loan-rate-row" onclick="navTo('loan-flexible');loanSetBorrow('BTC')">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="loan-coin-ico" style="background:#F7931A;">₿</div>
+            <span class="loan-coin-name">BTC</span>
+          </div>
+          <span class="loan-rate-val" id="loan-rate-btc">0.54% ›</span>
+        </div>
+        <div class="loan-rate-row" onclick="navTo('loan-flexible');loanSetBorrow('ETH')">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="loan-coin-ico" style="background:#627EEA;">Ξ</div>
+            <span class="loan-coin-name">ETH</span>
+          </div>
+          <span class="loan-rate-val" id="loan-rate-eth">2.48% ›</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- My Active Loans -->
+    <div style="padding:20px 16px 0;">
+      <div class="loan-section-title">My Loans</div>
+      <div id="loan-my-list">
+        <div class="loan-empty-box">
+          <div style="font-size:32px;margin-bottom:8px;">🏦</div>
+          <div style="font-size:14px;color:var(--t2);"><span data-i18n="no_loan">ยังไม่มีสินเชื่อ</span></div>
+          <div style="font-size:12px;color:var(--t3);margin-top:4px;">กด "เริ่มกู้ยืม" เพื่อสร้างสินเชื่อแรก</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE: TCC Loan — Flexible Rate (Borrow Form)
+══════════════════════════════════════════════════════ -->
+<div class="page" id="page-loan-flexible">
+  <!-- Header -->
+  <div class="loan-header">
+    <button class="loan-back-btn" onclick="navTo('loan')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="loan-header-title">Flexible Rate Loan</span>
+    <div style="width:28px"></div>
+  </div>
+
+  <div style="overflow-y:auto;height:calc(100vh - 56px);padding:0 16px 100px;">
+
+    <!-- Interest Rate Bar -->
+    <div class="loan-interest-bar">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="loan-coin-ico" style="background:#26A17B;width:22px;height:22px;font-size:11px;">₮</div>
+        <span style="font-size:13px;color:var(--t2);">Annualized Interest Rate</span>
+      </div>
+      <span style="color:#22c55e;font-weight:700;font-size:14px;" id="lf-interest-display">3.64%</span>
+    </div>
+
+    <!-- Borrow Amount -->
+    <div style="margin-top:16px;">
+      <div class="loan-form-label">ต้องการกู้ USDT</div>
+      <div class="loan-input-wrap">
+        <input type="number" id="lf-borrow-amt" class="loan-input" placeholder="จำนวน" oninput="_loanBorrowEdited = true; loanCalcLTV()" min="0" step="0.01">
+        <div class="loan-input-coin">
+          <div class="loan-coin-ico" style="background:#26A17B;width:22px;height:22px;font-size:11px;">₮</div>
+          <span style="font-size:13px;font-weight:600;">USDT</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collateral -->
+    <div style="margin-top:14px;">
+      <div class="loan-form-label"><span data-i18n="collateral">หลักทรัพย์ค้ำประกัน</span></div>
+      <div class="loan-input-wrap">
+        <input type="number" id="lf-collateral-amt" class="loan-input" placeholder="จำนวน" oninput="loanAutoSuggestBorrow(); loanCalcLTV()" min="0" step="0.00001">
+        <div class="loan-input-coin" style="cursor:pointer;" onclick="loanOpenCoinPicker()">
+          <div id="lf-col-ico" class="loan-coin-ico" style="background:#F7931A;width:22px;height:22px;font-size:11px;">₿</div>
+          <span id="lf-col-name" style="font-size:13px;font-weight:600;">BTC</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="loan-avbl-row">
+        <span style="color:var(--t3);font-size:12px;">ยอด Spot:</span>
+        <span style="color:var(--t2);font-size:12px;" id="lf-avbl">0.00000000</span>
+        <button class="loan-max-btn" onclick="loanSetMaxCollateral()">MAX</button>
+      </div>
+    </div>
+
+    <!-- LTV Panel -->
+    <div class="loan-ltv-panel" style="margin-top:18px;">
+      <div class="loan-ltv-current-row">
+        <span style="font-size:13px;color:var(--t2);">Current LTV</span>
+        <span style="font-size:15px;font-weight:700;color:var(--t1);" id="lf-ltv-current">— </span>
+      </div>
+      <div style="height:1px;background:var(--bl);margin:10px 0;"></div>
+      <div class="loan-ltv-row">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="color:#22c55e;font-size:14px;">✓</span>
+          <span style="font-size:13px;color:var(--t2);">Initial LTV</span>
+        </div>
+        <span style="font-size:13px;font-weight:600;color:var(--t1);" id="lf-ltv-init">75%</span>
+      </div>
+      <div class="loan-ltv-row">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="color:#f59e0b;font-size:14px;">⚠</span>
+          <span style="font-size:13px;color:var(--t2);">Margin Call LTV</span>
+        </div>
+        <span style="font-size:13px;font-weight:600;color:var(--t1);" id="lf-ltv-margin">83%</span>
+      </div>
+      <div class="loan-ltv-row">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="color:#ef4444;font-size:14px;">✕</span>
+          <span style="font-size:13px;color:var(--t2);">Liquidation LTV</span>
+        </div>
+        <span style="font-size:13px;font-weight:600;color:var(--t1);" id="lf-ltv-liq">90%</span>
+      </div>
+    </div>
+
+    <!-- Liq Price + Net Rate -->
+    <div class="loan-info-rows" style="margin-top:14px;">
+      <div class="loan-info-row">
+        <span class="loan-info-key">Liquidation Price</span>
+        <span class="loan-info-val" id="lf-liq-price">0.00000000 ⇌</span>
+      </div>
+      <div class="loan-info-row">
+        <span class="loan-info-key">Net Annualized Rate</span>
+        <span class="loan-info-val" id="lf-net-rate">3.64%</span>
+      </div>
+      <div class="loan-info-row">
+        <span class="loan-info-key">ดอกเบี้ยต่อชั่วโมง</span>
+        <span class="loan-info-val" id="lf-hourly-int">0.00 USDT</span>
+      </div>
+    </div>
+
+    <!-- Confirm Button -->
+    <button class="loan-confirm-btn" id="lf-confirm-btn" onclick="loanSubmitBorrow()"><span data-i18n="confirm_loan">ยืนยันกู้ยืม</span></button>
+
+  </div>
+</div>
+
+<!-- Coin Picker Sheet -->
+<div class="ast-sheet-overlay" id="loan-coin-overlay" onclick="loanCloseCoinPicker()" style="z-index:3100;"></div>
+<div class="ast-bottom-sheet" id="loan-coin-sheet" style="z-index:3101;">
+  <div style="padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bl);">
+    <span style="font-size:15px;font-weight:700;color:var(--t1);">เลือกหลักทรัพย์ค้ำประกัน</span>
+    <button onclick="loanCloseCoinPicker()" style="background:none;border:none;color:var(--t2);font-size:22px;cursor:pointer;line-height:1;">✕</button>
+  </div>
+  <div id="loan-coin-list" style="padding:4px 0 32px;"></div>
+</div>
+
+<!-- Loan History Sheet -->
+<div class="ast-sheet-overlay" id="loan-history-overlay" onclick="loanCloseHistory()" style="z-index:3100;"></div>
+<div class="ast-bottom-sheet" id="loan-history-sheet" style="z-index:3101;max-height:80vh;display:flex;flex-direction:column;">
+  <div style="padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bl);flex-shrink:0;">
+    <span style="font-size:15px;font-weight:700;color:var(--t1);">Loan History</span>
+    <button onclick="loanCloseHistory()" style="background:none;border:none;color:var(--t2);font-size:22px;cursor:pointer;line-height:1;">✕</button>
+  </div>
+  <div id="loan-history-list" style="padding:12px 16px 32px;overflow-y:auto;"></div>
+</div>
+
+<!-- ════ LOAN: Repay Confirm Modal — แทนที่ browser confirm() เดิม (ใช้ pattern เดียวกับ EARN Redeem Modal) ════ -->
+<div class="earn-modal-overlay" id="loanRepayModal">
+  <div class="earn-modal">
+    <div class="earn-modal-handle"></div>
+    <div class="earn-modal-title"><span data-i18n="confirm_repay_loan">💳 ยืนยันชำระคืนสินเชื่อ</span></div>
+    <div class="earn-claim-row"><span class="earn-claim-label"><span data-i18n="loan">สินเชื่อ</span></span><span class="earn-claim-val" id="loanRepayId">—</span></div>
+    <div class="earn-claim-row"><span class="earn-claim-label">เงินต้น</span><span class="earn-claim-val" id="loanRepayPrincipal">0.00 USDT</span></div>
+    <div class="earn-claim-row"><span class="earn-claim-label">ดอกเบี้ยสะสม</span><span class="earn-claim-val" style="color:var(--y)" id="loanRepayInterest">0.0000 USDT</span></div>
+    <div class="earn-claim-row" style="background:rgba(14,203,129,.05)"><span class="earn-claim-label" style="color:var(--t1);font-weight:700"><span data-i18n="total_repay">รวมชำระ</span></span><span class="earn-claim-val" style="color:var(--g);font-size:16px" id="loanRepayTotal">0.0000 USDT</span></div>
+    <div class="earn-claim-row"><span class="earn-claim-label">หลักทรัพย์ที่จะได้รับคืน</span><span class="earn-claim-val" id="loanRepayCollateral">—</span></div>
+    <div style="padding:10px 20px 0;font-size:12px;color:var(--t3);line-height:1.5">
+      ⚠️ ยอดชำระจะถูกหักจาก Main Balance ทันที และหลักทรัพย์ค้ำประกันจะถูกโอนกลับเข้า Spot Wallet — ไม่สามารถย้อนกลับได้
+    </div>
+    <div class="earn-modal-footer">
+      <button class="earn-submit-btn" id="loanRepaySubmitBtn" onclick="confirmLoanRepay()"><span data-i18n="confirm_repay">ยืนยันชำระคืน</span></button>
+      <div style="text-align:center;padding:14px 0 0;font-size:13px;color:var(--t2);cursor:pointer" onclick="closeLoanRepayModal()"><span data-i18n="cancel">ยกเลิก</span></div>
+    </div>
+    <div style="height:16px"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     LOAN CSS
+══════════════════════════════════════════════════════ -->
+<style>
+/* ─── Loan Header ─── */
+.loan-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--bl);
+  position: sticky; top: 0; z-index: 10;
+}
+.loan-header-title { font-size: 16px; font-weight: 700; color: var(--t1); }
+.loan-back-btn { background: none; border: none; color: var(--t1); cursor: pointer; padding: 4px; display: flex; }
+.loan-history-btn { background: none; border: none; color: var(--t1); cursor: pointer; padding: 4px; display: flex; }
+
+/* ─── Main Card ─── */
+.loan-main-card {
+  background: var(--bg3); border: 1px solid var(--bl); border-radius: 14px;
+  padding: 20px 18px;
+}
+.loan-main-card-title { font-size: 16px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
+.loan-main-card-sub { font-size: 12px; color: var(--t3); margin-bottom: 16px; }
+.loan-start-btn {
+  display: block; width: 100%; padding: 13px;
+  background: var(--y); border: none; border-radius: 10px;
+  font-size: 15px; font-weight: 700; color: #000; cursor: pointer;
+  font-family: inherit;
+}
+
+/* ─── Section Title ─── */
+.loan-section-title { font-size: 15px; font-weight: 700; color: var(--t1); margin-bottom: 12px; }
+
+/* ─── Rate Table ─── */
+.loan-rate-table { background: var(--bg3); border: 1px solid var(--bl); border-radius: 12px; overflow: hidden; }
+.loan-rate-header {
+  display: flex; justify-content: space-between; padding: 10px 16px;
+  font-size: 11px; color: var(--t3); border-bottom: 1px solid var(--bl);
+}
+.loan-rate-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--bl); cursor: pointer;
+  transition: background .15s;
+}
+.loan-rate-row:last-child { border-bottom: none; }
+.loan-rate-row:active { background: var(--bg2); }
+.loan-coin-ico {
+  width: 28px; height: 28px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 14px;
+  font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.loan-coin-name { font-size: 14px; font-weight: 600; color: var(--t1); }
+.loan-rate-val { font-size: 13px; color: var(--t2); }
+
+/* ─── Empty State ─── */
+.loan-empty-box {
+  background: var(--bg3); border: 1px solid var(--bl); border-radius: 12px;
+  padding: 30px 16px; text-align: center;
+}
+
+/* ─── My Loan Card ─── */
+.loan-active-card {
+  background: var(--bg3); border: 1px solid var(--bl); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 10px;
+}
+.loan-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.loan-card-badge {
+  font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 20px;
+  background: rgba(34,197,94,.15); color: #22c55e; border: 1px solid rgba(34,197,94,.3);
+}
+.loan-card-badge.liq { background: rgba(239,68,68,.15); color: #ef4444; border-color: rgba(239,68,68,.3); }
+.loan-card-badge.warn { background: rgba(245,158,11,.15); color: #f59e0b; border-color: rgba(245,158,11,.3); }
+.loan-card-badge.repaid { background: rgba(148,163,184,.15); color: #94a3b8; border-color: rgba(148,163,184,.3); }
+.loan-card-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+.loan-card-key { color: var(--t3); }
+.loan-card-val { color: var(--t1); font-weight: 600; }
+.loan-card-repay-btn {
+  display: block; width: 100%; margin-top: 12px; padding: 9px;
+  background: transparent; border: 1px solid var(--y); border-radius: 8px;
+  font-size: 13px; font-weight: 700; color: var(--y); cursor: pointer;
+  font-family: inherit;
+}
+
+/* ─── Flexible Form ─── */
+.loan-interest-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg3); border: 1px solid var(--bl); border-radius: 10px;
+  padding: 12px 14px; margin-top: 16px;
+}
+.loan-form-label { font-size: 12px; color: var(--t3); margin-bottom: 6px; }
+.loan-input-wrap {
+  display: flex; align-items: center; background: var(--bg3);
+  border: 1px solid var(--bl); border-radius: 10px; padding: 0 12px;
+}
+.loan-input {
+  flex: 1; background: none; border: none; outline: none; padding: 13px 0;
+  font-size: 15px; color: var(--t1); font-family: inherit;
+}
+.loan-input-coin { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.loan-avbl-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.loan-max-btn {
+  font-size: 11px; font-weight: 700; color: var(--y);
+  background: none; border: 1px solid var(--y); border-radius: 6px;
+  padding: 2px 8px; cursor: pointer; font-family: inherit;
+}
+.loan-ltv-panel {
+  background: var(--bg3); border: 1px solid var(--bl); border-radius: 12px; padding: 14px 16px;
+}
+.loan-ltv-current-row { display: flex; justify-content: space-between; align-items: center; }
+.loan-ltv-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.loan-ltv-row:last-child { margin-bottom: 0; }
+.loan-info-rows { background: var(--bg3); border: 1px solid var(--bl); border-radius: 12px; overflow: hidden; }
+.loan-info-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--bl);
+}
+.loan-info-row:last-child { border-bottom: none; }
+.loan-info-key { font-size: 13px; color: var(--t2); }
+.loan-info-val { font-size: 13px; font-weight: 600; color: var(--t1); }
+.loan-confirm-btn {
+  display: block; width: 100%; margin-top: 20px; padding: 15px;
+  background: var(--y); border: none; border-radius: 12px;
+  font-size: 16px; font-weight: 700; color: #000; cursor: pointer;
+  font-family: inherit;
+}
+.loan-confirm-btn:disabled { opacity: .45; cursor: not-allowed; }
+</style>
+
+<!-- ══════════════════════════════════════════════════════
+     LOAN JAVASCRIPT
+══════════════════════════════════════════════════════ -->
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  TCC LOAN — Config
+// ══════════════════════════════════════════════════════════════════
+const LOAN_COINS = {
+  BTC:  { name:'Bitcoin',  symbol:'BTC', bg:'#F7931A', ico:'₿',  initLTV:75, marginLTV:83, liqLTV:90,  annualRate:0.54  },
+  ETH:  { name:'Ethereum', symbol:'ETH', bg:'#627EEA', ico:'Ξ',  initLTV:75, marginLTV:83, liqLTV:90,  annualRate:2.48  },
+  BNB:  { name:'BNB',      symbol:'BNB', bg:'#F0B90B', ico:'B',  initLTV:65, marginLTV:75, liqLTV:85,  annualRate:1.20  },
+  XRP:  { name:'XRP',      symbol:'XRP', bg:'#346AA9', ico:'X',  initLTV:60, marginLTV:70, liqLTV:80,  annualRate:2.10  },
+  SOL:  { name:'Solana',   symbol:'SOL', bg:'#9945FF', ico:'◎',  initLTV:60, marginLTV:70, liqLTV:80,  annualRate:1.80  },
+};
+const LOAN_BORROW_RATE_USDT = 3.64; // % annualized
+const LOAN_HOURLY_RATE = LOAN_BORROW_RATE_USDT / 100 / 8760; // per hour
+
+// current selected collateral coin
+let _loanSelectedCoin = 'BTC';
+// [FIX] true เมื่อผู้ใช้พิมพ์ในช่อง "ต้องการกู้ USDT" เองแล้ว — กันไม่ให้ auto-suggest ไปทับค่าที่ผู้ใช้ตั้งใจกรอกเอง
+let _loanBorrowEdited = false;
+// cache of HL prices
+let _loanPrices = {};
+
+// ══════════════════════════════════════════════════════════════════
+//  PRICE — pull from Hyperliquid REST (same pattern as rest of app)
+// ══════════════════════════════════════════════════════════════════
+async function loanFetchPrices() {
+  try {
+    const r = await fetch('https://api.hyperliquid.xyz/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'allMids' })
+    });
+    const mids = await r.json();
+    // allMids returns { BTC: "103xxx", ETH: "2xxx", ... }
+    ['BTC','ETH','BNB','XRP','SOL'].forEach(sym => {
+      if (mids[sym]) _loanPrices[sym] = parseFloat(mids[sym]);
+    });
+    return _loanPrices;
+  } catch(e) {
+    console.warn('[loanFetchPrices]', e);
+    return _loanPrices;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  NAV helpers
+// ══════════════════════════════════════════════════════════════════
+function loanSetBorrow(coin) {
+  // called when user taps a coin row from main page
+  // [FIX] "USDT" (และเหรียญอื่นที่ไม่ได้อยู่ใน LOAN_COINS) ใช้เป็นหลักทรัพย์ค้ำประกันไม่ได้
+  // เดิมถ้า coin ไม่ตรงกับ LOAN_COINS จะทำให้ loanRenderCoinSelector()/loanCalcLTV() return ทันที (guard `if(!coin) return`)
+  // ผลคือหน้า Flexible Loan ไม่มีราคาประเมิน/LTV/Liq Price ใดๆ ขึ้นเลย ถ้ากดแถว USDT ใน Popular Assets
+  _loanSelectedCoin = (coin && LOAN_COINS[coin]) ? coin : 'BTC';
+  _loanBorrowEdited = false;
+  loanRenderCoinSelector();
+  loanCalcLTV();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  COIN PICKER
+// ══════════════════════════════════════════════════════════════════
+function loanOpenCoinPicker() {
+  const list = document.getElementById('loan-coin-list');
+  if (!list) return;
+
+  // อัพเดทราคาล่าสุดก่อนแสดง balance value
+  loanFetchPrices().then(() => {
+    list.innerHTML = Object.values(LOAN_COINS).map(c => {
+      const bal      = _loanGetSpotBalance(c.symbol);
+      const price    = _loanPrices[c.symbol] || 0;
+      const balUSDT  = bal * price;
+      const isActive = c.symbol === _loanSelectedCoin;
+      return `<div onclick="loanSelectCoin('${c.symbol}')"
+        style="display:flex;align-items:center;justify-content:space-between;
+               padding:14px 16px;border-bottom:1px solid var(--bl);cursor:pointer;
+               background:${isActive ? 'rgba(240,185,11,.07)' : 'transparent'};">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="loan-coin-ico" style="background:${c.bg};width:36px;height:36px;font-size:16px;">${c.ico}</div>
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--t1);">${c.symbol}</div>
+            <div style="font-size:11px;color:var(--t3);">${c.name}</div>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:13px;font-weight:600;color:var(--t1);">${bal > 0 ? bal.toFixed(6) : '0.000000'}</div>
+          <div style="font-size:11px;color:var(--t3);">${price > 0 && bal > 0 ? '≈ $' + balUSDT.toFixed(2) : 'Spot Balance'}</div>
+        </div>
+        ${isActive ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--y)" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+      </div>`;
+    }).join('');
+  });
+
+  // เปิด sheet ด้วย class pattern เดียวกับ sheet อื่นๆ ในแอป
+  const ov = document.getElementById('loan-coin-overlay');
+  const sh = document.getElementById('loan-coin-sheet');
+  if (ov) ov.classList.add('visible');
+  if (sh) sh.classList.add('open');
+}
+
+function loanCloseCoinPicker() {
+  const ov = document.getElementById('loan-coin-overlay');
+  const sh = document.getElementById('loan-coin-sheet');
+  if (ov) ov.classList.remove('visible');
+  if (sh) sh.classList.remove('open');
+}
+function loanSelectCoin(sym) {
+  _loanSelectedCoin = sym;
+  _loanBorrowEdited = false; // เปลี่ยนเหรียญค้ำประกัน → คำนวณยอดกู้แนะนำใหม่จากค่าที่มีอยู่
+  loanRenderCoinSelector();
+  loanCalcLTV();
+  loanAutoSuggestBorrow();
+  loanCloseCoinPicker();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  RENDER coin selector badge
+// ══════════════════════════════════════════════════════════════════
+function loanRenderCoinSelector() {
+  const c = LOAN_COINS[_loanSelectedCoin];
+  if (!c) return;
+  const ico = document.getElementById('lf-col-ico');
+  const nm  = document.getElementById('lf-col-name');
+  if (ico) { ico.style.background = c.bg; ico.textContent = c.ico; }
+  if (nm)  nm.textContent = c.symbol;
+  // update LTV labels
+  document.getElementById('lf-ltv-init').textContent   = c.initLTV   + '%';
+  document.getElementById('lf-ltv-margin').textContent = c.marginLTV + '%';
+  document.getElementById('lf-ltv-liq').textContent    = c.liqLTV    + '%';
+  // update avbl
+  document.getElementById('lf-avbl').textContent = _loanGetSpotBalance(c.symbol).toFixed(8);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  GET SPOT BALANCE from USER_PROFILE / local balances
+// ══════════════════════════════════════════════════════════════════
+function _loanGetSpotBalance(sym) {
+  // [LOAN v1 FIX] อ่าน balance จาก SND_COINS ซึ่ง sync จาก GAS spot_balance จริงๆ
+  // USER_PROFILE.balances ไม่มีใน schema — ใช้ SND_COINS แทน (มีครบ BTC/ETH/BNB/XRP/SOL/USDT)
+  try {
+    if (typeof SND_COINS !== 'undefined') {
+      const entry = SND_COINS.find(c => c.coin === sym);
+      if (entry) return parseFloat(entry.bal || 0);
+    }
+  } catch(e) {}
+  // fallback: อ่านจาก USER_PROFILE.spot_balance สำหรับ USDT เท่านั้น
+  try {
+    if (sym === 'USDT' && typeof USER_PROFILE !== 'undefined') {
+      return parseFloat(USER_PROFILE.spot_balance || 0);
+    }
+  } catch(e) {}
+  return 0;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SET MAX COLLATERAL
+// ══════════════════════════════════════════════════════════════════
+function loanSetMaxCollateral() {
+  const bal = _loanGetSpotBalance(_loanSelectedCoin);
+  const inp = document.getElementById('lf-collateral-amt');
+  if (inp) { inp.value = bal.toFixed(8); loanAutoSuggestBorrow(); loanCalcLTV(); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  [FIX] AUTO-SUGGEST ยอด "ต้องการกู้ USDT" จากหลักทรัพย์ค้ำประกันที่กรอก
+//  เดิมช่อง lf-collateral-amt มี oninput เรียกแค่ loanCalcLTV() → ไม่มีจุดไหนเติมค่า
+//  lf-borrow-amt ให้เลย ผู้ใช้ต้องกรอกยอดกู้เองล้วนๆ ทั้งที่ควรมีค่าประเมิน/แนะนำขึ้นให้อัตโนมัติ
+//  (เว้นแต่ผู้ใช้แก้ช่องกู้เองแล้ว — เก็บสถานะไว้ที่ _loanBorrowEdited กันไปทับค่าที่ผู้ใช้ตั้งใจกรอก)
+// ══════════════════════════════════════════════════════════════════
+function loanAutoSuggestBorrow() {
+  if (_loanBorrowEdited) return; // ผู้ใช้แก้ยอดกู้เองแล้ว ไม่ auto-fill ทับ
+  const coin  = LOAN_COINS[_loanSelectedCoin];
+  const inp   = document.getElementById('lf-borrow-amt');
+  const colAmt = parseFloat(document.getElementById('lf-collateral-amt')?.value) || 0;
+  if (!coin || !inp) return;
+  if (colAmt <= 0) { inp.value = ''; return; }
+
+  const price = _loanPrices[_loanSelectedCoin] || 0;
+  if (price <= 0) return; // ยังไม่มีราคา (เช่น hyperliquid ยังโหลดไม่เสร็จ) — รอ loanFetchPrices ก่อนแล้วค่อยลองใหม่
+
+  const colValueUSDT = colAmt * price;
+  // แนะนำที่ 95% ของ Initial LTV เผื่อ buffer ไม่ให้ raw calc ดันไปชนขอบพอดีตอนกดยืนยัน
+  const suggested = Math.floor(colValueUSDT * (coin.initLTV / 100) * 0.95 * 100) / 100;
+  inp.value = suggested > 0 ? suggested.toFixed(2) : '';
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  CALCULATE LTV + Liq Price
+// ══════════════════════════════════════════════════════════════════
+function loanCalcLTV() {
+  const borrowAmt    = parseFloat(document.getElementById('lf-borrow-amt')?.value) || 0;
+  const colAmt       = parseFloat(document.getElementById('lf-collateral-amt')?.value) || 0;
+  const coin         = LOAN_COINS[_loanSelectedCoin];
+  if (!coin) return;
+
+  const price        = _loanPrices[_loanSelectedCoin] || 0;
+  const colValueUSDT = colAmt * price;
+
+  // LTV = borrow / collateral_value_USDT * 100
+  let ltv = colValueUSDT > 0 ? (borrowAmt / colValueUSDT) * 100 : 0;
+  const ltvEl = document.getElementById('lf-ltv-current');
+  if (ltvEl) {
+    if (ltv > 0) {
+      let col = ltv >= coin.liqLTV ? '#ef4444' : ltv >= coin.marginLTV ? '#f59e0b' : '#22c55e';
+      ltvEl.textContent = ltv.toFixed(2) + '%';
+      ltvEl.style.color = col;
+    } else {
+      ltvEl.textContent = '—';
+      ltvEl.style.color = 'var(--t1)';
+    }
+  }
+
+  // Liquidation price: price at which LTV reaches liqLTV
+  // liqPrice = borrowAmt / (colAmt * liqLTV/100)
+  let liqPrice = 0;
+  if (colAmt > 0 && borrowAmt > 0) {
+    liqPrice = borrowAmt / (colAmt * (coin.liqLTV / 100));
+  }
+  const liqEl = document.getElementById('lf-liq-price');
+  if (liqEl) liqEl.textContent = liqPrice > 0 ? liqPrice.toFixed(4) + ' USDT ⇌' : '0.00 ⇌';
+
+  // Hourly interest
+  const hourlyInt = borrowAmt * LOAN_HOURLY_RATE;
+  const hEl = document.getElementById('lf-hourly-int');
+  if (hEl) hEl.textContent = hourlyInt > 0 ? hourlyInt.toFixed(6) + ' USDT' : '0.00 USDT';
+
+  // Validate button
+  const btn = document.getElementById('lf-confirm-btn');
+  if (btn) {
+    const valid = borrowAmt > 0 && colAmt > 0 && ltv <= coin.initLTV;
+    btn.disabled = !valid;
+    btn.textContent = ltv > coin.initLTV && ltv > 0
+      ? tccTF('toast_ltv_exceed',{ltv:coin.initLTV})+' — '+tccT('reduce_borrow')
+      : tccT('confirm_loan');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SUBMIT BORROW → GAS
+// ══════════════════════════════════════════════════════════════════
+async function loanSubmitBorrow() {
+  const borrowAmt  = parseFloat(document.getElementById('lf-borrow-amt')?.value) || 0;
+  const colAmt     = parseFloat(document.getElementById('lf-collateral-amt')?.value) || 0;
+  const coin       = LOAN_COINS[_loanSelectedCoin];
+  if (!borrowAmt || !colAmt || !coin) return;
+
+  const price    = _loanPrices[_loanSelectedCoin] || 0;
+  const ltv      = price > 0 ? (borrowAmt / (colAmt * price)) * 100 : 0;
+  const liqPrice = colAmt > 0 ? borrowAmt / (colAmt * (coin.liqLTV / 100)) : 0;
+
+  if (ltv > coin.initLTV) {
+    showToast(tccTF('toast_ltv_exceed',{ltv:coin.initLTV})); return;
+  }
+  if (colAmt > _loanGetSpotBalance(_loanSelectedCoin)) {
+    showToast(tccT('toast_spot_insufficient2')); return;
+  }
+
+  const uid = (typeof USER_PROFILE !== 'undefined') ? USER_PROFILE.uid : null;
+  if (!uid) { showToast(tccT('toast_login_required_x')); return; }
+
+  const btn = document.getElementById('lf-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = tccT('btn_processing'); }
+
+  try {
+    const payload = {
+      uid,
+      collateral_coin:   _loanSelectedCoin,
+      collateral_amount: colAmt,
+      collateral_price:  price,
+      borrow_usdt:       borrowAmt,
+      ltv_current:       parseFloat(ltv.toFixed(4)),
+      liq_price:         parseFloat(liqPrice.toFixed(6)),
+      interest_rate:     LOAN_BORROW_RATE_USDT,
+      hourly_rate:       parseFloat((LOAN_HOURLY_RATE * 100).toFixed(8)),
+    };
+    await dbCallRaw('createLoan', payload);
+    showToast(tccT('toast_loan_created'));
+    // reset form
+    document.getElementById('lf-borrow-amt').value = '';
+    document.getElementById('lf-collateral-amt').value = '';
+    _loanBorrowEdited = false;
+    loanCalcLTV();
+    // go back and reload list
+    navTo('loan');
+    setTimeout(loanLoadMyLoans, 500);
+  } catch(e) {
+    showToast('❌ ' + (e.message || tccT('err_generic')));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = tccT('confirm_loan'); }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  LOAD MY LOANS from GAS
+// ══════════════════════════════════════════════════════════════════
+let _loanAllLoans = []; // [FIX] cache รายการ loan ทุกสถานะจาก getMyLoans ไว้ใช้ทั้ง My Loans (active) และ Loan History (repaid/liquidated)
+
+async function loanLoadMyLoans() {
+  const uid = (typeof USER_PROFILE !== 'undefined') ? USER_PROFILE.uid : null;
+  if (!uid) return;
+  const container = document.getElementById('loan-my-list');
+  if (!container) return;
+  try {
+    const loans = await dbCallRaw('getMyLoans', { uid });
+    _loanAllLoans = loans || [];
+
+    // [FIX] getMyLoans คืนทุกสถานะ (active/repaid/liquidated) — เดิม frontend render ทุกรายการรวมกัน
+    // ทำให้ loan ที่ชำระคืนแล้ว (status='repaid') ยังโชว์เป็น "● Active" พร้อมปุ่มชำระคืนซ้ำ
+    // ตอนนี้ "My Loans" แสดงเฉพาะ loan ที่ยัง active อยู่เท่านั้น ส่วน repaid/liquidated ย้ายไปดูผ่าน Loan History (ไอคอนนาฬิกา)
+    const activeLoans = _loanAllLoans.filter(l => l.status === 'active');
+
+    if (!activeLoans.length) {
+      container.innerHTML = `<div class="loan-empty-box">
+        <div style="font-size:32px;margin-bottom:8px;">🏦</div>
+        <div style="font-size:14px;color:var(--t2);"><span data-i18n="no_loan">${tccT('no_loan')}</span></div>
+        <div style="font-size:12px;color:var(--t3);margin-top:4px;">กด "เริ่มกู้ยืม" เพื่อสร้างสินเชื่อแรก</div>
+      </div>`;
+      return;
+    }
+    // update prices then render
+    await loanFetchPrices();
+    container.innerHTML = activeLoans.map(ln => loanRenderCard(ln)).join('');
+  } catch(e) {
+    console.warn('[loanLoadMyLoans]', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  LOAN HISTORY — เปิดจากไอคอนนาฬิกาใน header (แสดง repaid/liquidated)
+// ══════════════════════════════════════════════════════════════════
+function loanOpenHistory() {
+  const list = document.getElementById('loan-history-list');
+  if (list) {
+    const closedLoans = (_loanAllLoans || [])
+      .filter(l => l.status !== 'active')
+      .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+    list.innerHTML = closedLoans.length
+      ? closedLoans.map(ln => loanRenderCard(ln)).join('')
+      : `<div class="loan-empty-box">
+          <div style="font-size:32px;margin-bottom:8px;">📜</div>
+          <div style="font-size:14px;color:var(--t2);"><span data-i18n="no_loan_history">${tccT('no_loan_history')}</span></div>
+        </div>`;
+  }
+  const ov = document.getElementById('loan-history-overlay');
+  const sh = document.getElementById('loan-history-sheet');
+  if (ov) ov.classList.add('visible');
+  if (sh) sh.classList.add('open');
+}
+
+function loanCloseHistory() {
+  const ov = document.getElementById('loan-history-overlay');
+  const sh = document.getElementById('loan-history-sheet');
+  if (ov) ov.classList.remove('visible');
+  if (sh) sh.classList.remove('open');
+}
+
+function loanRenderCard(ln) {
+  const price     = _loanPrices[ln.collateral_coin] || ln.collateral_price || 0;
+  const colVal    = ln.collateral_amount * price;
+  const ltv       = colVal > 0 ? (ln.borrow_usdt / colVal * 100).toFixed(2) : '—';
+  const coin      = LOAN_COINS[ln.collateral_coin] || {};
+  const ltvNum    = parseFloat(ltv) || 0;
+  let badgeCls    = '';
+  let badgeTxt    = '● Active';
+  // [FIX] เดิมเช็คแค่ 'liquidated' เป็นกรณีพิเศษ ที่เหลือ fallback เป็น "Active" หมด
+  // ทำให้ loan ที่ status='repaid' ยังโชว์ badge "Active" อยู่ (ตรงกับบั๊กในภาพที่ส่งมา)
+  if (ln.status === 'repaid')          { badgeCls = 'repaid'; badgeTxt = '● Repaid'; }
+  else if (ln.status === 'liquidated') { badgeCls = 'liq';    badgeTxt = '● Liquidated'; }
+  else if (ltvNum >= (coin.marginLTV||83)) { badgeCls = 'warn'; badgeTxt = '⚠ Margin Call'; }
+
+  // interest accrued (rough estimate from created_at)
+  const hours  = ln.hours_elapsed || 0;
+  const intAcc = (ln.borrow_usdt * LOAN_HOURLY_RATE * hours).toFixed(4);
+
+  return `<div class="loan-active-card">
+    <div class="loan-card-top">
+      <span style="font-size:13px;font-weight:700;color:var(--t1);">${ln.collateral_coin} → USDT</span>
+      <span class="loan-card-badge ${badgeCls}">${badgeTxt}</span>
+    </div>
+    <div class="loan-card-row"><span class="loan-card-key">กู้ยืม</span><span class="loan-card-val">${parseFloat(ln.borrow_usdt).toFixed(2)} USDT</span></div>
+    <div class="loan-card-row"><span class="loan-card-key">หลักทรัพย์</span><span class="loan-card-val">${parseFloat(ln.collateral_amount).toFixed(6)} ${ln.collateral_coin}</span></div>
+    <div class="loan-card-row"><span class="loan-card-key">Liq Price</span><span class="loan-card-val">${parseFloat(ln.liq_price||0).toFixed(4)} USDT</span></div>
+    <div class="loan-card-row"><span class="loan-card-key">LTV ปัจจุบัน</span><span class="loan-card-val" style="color:${ltvNum>=(coin.liqLTV||90)?'#ef4444':ltvNum>=(coin.marginLTV||83)?'#f59e0b':'#22c55e'}">${ltv}%</span></div>
+    <div class="loan-card-row"><span class="loan-card-key">ดอกเบี้ยสะสม</span><span class="loan-card-val">${intAcc} USDT</span></div>
+    ${ln.status === 'active' ? `<button class="loan-card-repay-btn" onclick="loanRepay('${ln.loan_id}')">ชำระคืน</button>` : ''}
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  REPAY → GAS
+// ══════════════════════════════════════════════════════════════════
+let _loanRepayTargetId = null; // [FIX] สินเชื่อที่กำลังจะชำระคืน ระหว่างเปิด loanRepayModal
+
+async function loanRepay(loanId) {
+  const uid = (typeof USER_PROFILE !== 'undefined') ? USER_PROFILE.uid : null;
+  if (!uid) { showToast(tccT('toast_login_required_x')); return; }
+
+  // หา loan record จาก list ที่โหลดไว้ เพื่อแสดงยอดชำระใน modal ก่อนยืนยัน
+  // [FIX] เดิมใช้ browser confirm() ล้วน (ไม่ตรงดีไซน์ระบบ) → เปลี่ยนมาใช้ loanRepayModal
+  // ตาม pattern เดียวกับ earnRedeemModal ที่ใช้แทน confirm() อยู่แล้วในหน้า Earn
+  try {
+    const loans = await dbCallRaw('getMyLoans', { uid });
+    const ln = (loans || []).find(l => l.loan_id === loanId);
+    if (!ln) { showToast(tccT('toast_loan_not_found')); return; }
+
+    const interest = ln.borrow_usdt * (ln.hourly_rate / 100) * ln.hours_elapsed;
+    const total    = ln.borrow_usdt + interest;
+
+    _loanRepayTargetId = loanId;
+    document.getElementById('loanRepayId').textContent          = ln.collateral_coin + ' → USDT';
+    document.getElementById('loanRepayPrincipal').textContent   = parseFloat(ln.borrow_usdt).toFixed(2) + ' USDT';
+    document.getElementById('loanRepayInterest').textContent    = interest.toFixed(4) + ' USDT';
+    document.getElementById('loanRepayTotal').textContent       = total.toFixed(4) + ' USDT';
+    document.getElementById('loanRepayCollateral').textContent  = parseFloat(ln.collateral_amount).toFixed(6) + ' ' + ln.collateral_coin;
+
+    document.getElementById('loanRepayModal').classList.add('open');
+  } catch(e) {
+    showToast('❌ ' + (e.message || tccT('toast_loan_load_fail').replace('❌ ','')));
+  }
+}
+
+function closeLoanRepayModal() {
+  document.getElementById('loanRepayModal').classList.remove('open');
+  _loanRepayTargetId = null;
+}
+
+async function confirmLoanRepay() {
+  const loanId = _loanRepayTargetId;
+  if (!loanId) return;
+  const uid = (typeof USER_PROFILE !== 'undefined') ? USER_PROFILE.uid : null;
+  if (!uid) { showToast(tccT('toast_login_required_x')); closeLoanRepayModal(); return; }
+
+  const btn = document.getElementById('loanRepaySubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = tccT('btn_processing'); }
+
+  try {
+    const result = await dbCallRaw('repayLoan', { uid, loan_id: loanId });
+    closeLoanRepayModal();
+    showToast(tccTF('toast_repay_success',{interest:(result?.interest_paid||0).toFixed(4)}));
+    loanLoadMyLoans();
+  } catch(e) {
+    showToast('❌ ' + (e.message || tccT('err_generic')));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = tccT('confirm_repay'); }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  INIT — when user enters loan pages
+// ══════════════════════════════════════════════════════════════════
+function loanOnEnter() {
+  loanFetchPrices().then(() => {
+    loanRenderCoinSelector();
+    loanCalcLTV();
+  });
+  loanLoadMyLoans();
+}
+
+// Hook into navTo — reload data when entering loan pages
+(function() {
+  const _origNavTo = typeof navTo === 'function' ? navTo : null;
+  // We patch via event — navTo already exists, so we use MutationObserver on page-loan
+  const _obs = new MutationObserver(muts => {
+    muts.forEach(m => {
+      if (m.target.id === 'page-loan' && m.target.classList.contains('active')) {
+        loanOnEnter();
+      }
+      if (m.target.id === 'page-loan-flexible' && m.target.classList.contains('active')) {
+        loanFetchPrices().then(() => {
+          loanRenderCoinSelector();
+          loanAutoSuggestBorrow(); // [FIX] เผื่อผู้ใช้กรอก/กด MAX ก่อนราคาจะโหลดเสร็จ ให้ลองคำนวณยอดแนะนำอีกครั้งหลังราคามาแล้ว
+          loanCalcLTV();
+        });
+      }
+    });
+  });
+  ['page-loan','page-loan-flexible'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) _obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+  });
+})();
+</script>
+
+<div class="fab-refresh" id="fabRefresh" onclick="softRefreshCurrentPage()" title="Refresh">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+</div>
+
+
+
+<!-- ═══════════════════════════════════════════════════════════════
+     TCC WALLET SYSTEM — JavaScript
+     MetaMask A+ Style: Non-Custodial + Encrypted PK in NocoDB
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+'use strict';
+
+/* ─── Constants ─── */
+const WLT_STORAGE_KEY   = 'tcc_wallets_local';  // localStorage fallback (encrypted PK)
+const WLT_USDT_CONTRACT = '0x55d398326f99059fF775485246999027B3197955'; // BSC USDT
+const WLT_BSC_RPC       = 'https://bsc-dataseed.binance.org/';
+const WLT_SOL_RPC       = 'https://api.mainnet-beta.solana.com';
+const WLT_SOL_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // SOL USDC mint
+const WLT_COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price?ids=tether,binancecoin,solana,usd-coin&vs_currencies=thb,usd';
+
+/* ─── Base58 Encoder (สำหรับ Solana address + PK) ─── */
+const SOL_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function solBase58Encode(buf) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let digits = [0];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  let str = '';
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) str += '1';
+  for (let i = digits.length - 1; i >= 0; i--) str += SOL_ALPHABET[digits[i]];
+  return str;
+}
+
+function solBase58Decode(str) {
+  const alphabetMap = {};
+  for (let i = 0; i < SOL_ALPHABET.length; i++) alphabetMap[SOL_ALPHABET[i]] = i;
+  let bytes = [0];
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (!(ch in alphabetMap)) throw new Error('Invalid Base58 character: ' + ch);
+    let carry = alphabetMap[ch];
+    for (let j = 0; j < bytes.length; j++) {
+      carry += bytes[j] * 58;
+      bytes[j] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) { bytes.push(carry & 0xff); carry >>= 8; }
+  }
+  for (let i = 0; i < str.length && str[i] === '1'; i++) bytes.push(0);
+  return new Uint8Array(bytes.reverse());
+}
+
+/* ─── Solana Wallet Generator (@noble/ed25519 2.2.3) ─── */
+function solGenerateWallet() {
+  if (typeof self === 'undefined' || !self.nobleEd25519) {
+    throw new Error('noble/ed25519 ยังไม่โหลด — กรุณารอสักครู่');
+  }
+  const ed = self.nobleEd25519;
+  // สุ่ม seed 32 bytes ด้วย Web Crypto API
+  const seed      = crypto.getRandomValues(new Uint8Array(32));
+  // Ed25519: getPublicKey(seed32) → publicKey 32 bytes
+  const publicKey = ed.getPublicKey(seed);  // sync (sha512Sync pre-configured)
+  // publicKey 32 bytes → Solana Address (Base58)
+  const address   = solBase58Encode(publicKey);    // ~44 chars
+  const seedB58   = solBase58Encode(seed);          // ~44 chars (seed only — compatible with Phantom)
+  return { address, privateKey: seedB58 };
+}
+
+function solValidatePK(pkBase58) {
+  // Phantom/Solflare ใช้ seed 32 bytes หรือ full secret 64 bytes
+  try {
+    const bytes = solBase58Decode(pkBase58.trim());
+    return bytes.length === 32 || bytes.length === 64;
+  } catch(e) { return false; }
+}
+
+function solDeriveAddressFromPK(pkBase58) {
+  const ed    = self.nobleEd25519;
+  const bytes = solBase58Decode(pkBase58.trim());
+  // noble/ed25519 ใช้ seed 32 bytes เสมอ
+  // หาก import 64-byte secretKey (TweetNaCl convention: seed+pubkey) → ใช้แค่ 32 bytes แรก
+  let seed;
+  if (bytes.length === 32)      seed = bytes;
+  else if (bytes.length === 64) seed = bytes.slice(0, 32);
+  else throw new Error('Invalid Solana private key length');
+  return solBase58Encode(ed.getPublicKey(seed));
+}
+
+/* ─── State ─── */
+let wlt = {
+  currentScreen : 'main',
+  selectedChain : 'BSC',
+  selectedChainImp : 'BSC',
+  checks        : { c1:false, c2:false, c3:false },
+  pendingWallet : null,   // { address, mnemonic, privateKey, encrypted_pk, chain, label }
+  wallets       : [],     // [{ id, label, chain, address, encrypted_pk, iv, salt, created_at }]
+  revealTimer   : null,
+  bnbPriceTHB   : 0,
+  usdtPriceTHB  : 35,
+  solPriceTHB   : 0,
+  bnbPriceUSD   : 0,      // [NEW] BNB ราคาเป็น USD
+  solPriceUSD   : 0,      // [NEW] SOL ราคาเป็น USD
+  usdtPriceUSD  : 1,      // [NEW] USDT ≈ $1
+  _usdToThb     : 35,     // [NEW] อัตราแลกเปลี่ยน USD→THB (ดึงจาก CoinGecko/Binance)
+  bnbBal        : 0,
+  usdtBal       : 0,
+  solBal        : 0,
+  lockedUsdt    : 0,
+  lowValOpen    : false,
+  // [FIX] per-wallet balance — keyed by wallet id
+  // { [walletId]: { usdt, bnb, sol } }
+  _balPerWallet : {},
+};
+
+/* ════════════════════════════════
+   SCREEN ROUTER
+════════════════════════════════ */
+window.wltGoto = function(screen) {
+  // ถ้า modal เปิดอยู่ ให้ใช้ hmWltOpen แทน (modal context)
+  const modal = document.getElementById('hmWltModal');
+  if (modal && modal.style.display !== 'none') {
+    if (typeof hmWltOpen === 'function') hmWltOpen(screen);
+    return;
+  }
+  // ast-page-wallet-a context (Assets page)
+  document.querySelectorAll('.wlt-screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById('wlt-screen-' + screen);
+  if (el) el.classList.add('active');
+  wlt.currentScreen = screen;
+  // Scroll กลับขึ้นบนสุดทุกครั้ง
+  const pg = document.getElementById('ast-page-wallet-a');
+  if (pg) pg.scrollTo(0, 0);
+  // Hook-on-enter
+  if (screen === 'main')    { wltLoadWallets(); wltRefreshBalance(); }
+  if (screen === 'reveal')  { wltPopulateRevealSel(); }
+  if (screen === 'receive') { wltPopulateReceiveSel(); }
+  if (screen === 'send')    { wltPopulateSendSel(); }
+  if (screen === 'history') { wltRenderHistory(); }
+  if (screen === 'success') { wltRenderSuccessQR(); }
+};
+
+/* ════════════════════════════════
+   TOKEN TAB SWITCH
+════════════════════════════════ */
+window.wltTokTab = function(el, tab) {
+  document.querySelectorAll('.wlt-ttab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  const tokSec  = document.getElementById('wlt-tokens-section');
+  const wltSec  = document.getElementById('wlt-wallets-section');
+  if (tab === 'tokens')  { tokSec.style.display='block'; wltSec.style.display='none'; }
+  if (tab === 'wallets') { tokSec.style.display='none';  wltSec.style.display='block'; wltRenderWalletCards(); }
+};
+
+window.wltToggleLowVal = function() {
+  wlt.lowValOpen = !wlt.lowValOpen;
+  document.getElementById('wlt-low-section').style.display = wlt.lowValOpen ? 'block' : 'none';
+};
+
+/* ════════════════════════════════
+   CHAIN SELECT
+════════════════════════════════ */
+window.wltSelectChain = function(el, chain) {
+  document.querySelectorAll('#wlt-screen-create .wlt-chain-opt').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  wlt.selectedChain = chain;
+};
+window.wltSelectChainImp = function(el, chain) {
+  document.querySelectorAll('#wlt-screen-import .wlt-chain-opt').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  wlt.selectedChainImp = chain;
+};
+
+/* ════════════════════════════════
+   PASSWORD STRENGTH
+════════════════════════════════ */
+window.wltCheckStrength = function() {
+  const pwd = document.getElementById('wlt-create-pwd')?.value || '';
+  let score = 0;
+  if (pwd.length >= 8)          score++;
+  if (/[0-9]/.test(pwd))        score++;
+  if (/[A-Z]/.test(pwd))        score++;
+  if (/[^a-zA-Z0-9]/.test(pwd)) score++;
+  const colorMap = ['','s-red','s-red','s-gold','s-green'];
+  const labelMap = ['','อ่อน','พอใช้','ดี','แข็งแกร่ง'];
+  [1,2,3,4].forEach(i => {
+    const seg = document.getElementById('wlt-s'+i);
+    if (!seg) return;
+    seg.className = 'wlt-seg' + (i <= score ? ' ' + (colorMap[score]||'') : '');
+  });
+  const lbl = document.getElementById('wlt-strength-lbl');
+  if (lbl) lbl.textContent = labelMap[score] || 'ความแข็งแกร่ง';
+  wltCheckCreate();
+};
+
+window.wltCheckCreate = function() {
+  const label = document.getElementById('wlt-create-label')?.value.trim();
+  const p1    = document.getElementById('wlt-create-pwd')?.value;
+  const p2    = document.getElementById('wlt-create-pwd2')?.value;
+  const mis   = document.getElementById('wlt-pwd-mismatch');
+  const btn   = document.getElementById('wlt-create-btn');
+  if (mis) mis.style.display = (p2 && p1 !== p2) ? 'block' : 'none';
+  if (btn) btn.disabled = !(label && p1 && p1.length >= 8 && p1 === p2);
+};
+
+/* ════════════════════════════════
+   CRYPTO — PBKDF2 + AES-256-GCM
+   ทำงานใน Browser ล้วน ไม่ผ่าน Server
+════════════════════════════════ */
+async function wltDeriveKey(password, salt) {
+  const enc    = new TextEncoder();
+  const keyMat = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt, iterations:310000, hash:'SHA-256' },
+    keyMat,
+    { name:'AES-GCM', length:256 },
+    false,
+    ['encrypt','decrypt']
+  );
+}
+
+async function wltEncryptPK(privateKey, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await wltDeriveKey(password, salt);
+  const enc  = new TextEncoder();
+  const ct   = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(privateKey));
+  return {
+    encrypted_pk : _u8ToB64(new Uint8Array(ct)),
+    iv           : _u8ToB64(iv),
+    salt         : _u8ToB64(salt),
+  };
+}
+
+async function wltDecryptPK(encrypted_pk, iv, salt, password) {
+  const key = await wltDeriveKey(password, _b64ToU8(salt));
+  const dec = new TextDecoder();
+  try {
+    const pt = await crypto.subtle.decrypt(
+      { name:'AES-GCM', iv: _b64ToU8(iv) },
+      key,
+      _b64ToU8(encrypted_pk)
+    );
+    return dec.decode(pt);
+  } catch(e) {
+    return null; // Wrong password
+  }
+}
+
+function _u8ToB64(u8) {
+  return btoa(String.fromCharCode(...u8));
+}
+function _b64ToU8(b64) {
+  const s = atob(b64);
+  return new Uint8Array(s.length).map((_,i) => s.charCodeAt(i));
+}
+
+/* ════════════════════════════════
+   GENERATE WALLET (ethers.js — client only)
+════════════════════════════════ */
+window.wltDoCreate = async function() {
+  const label = document.getElementById('wlt-create-label')?.value.trim();
+  const pwd   = document.getElementById('wlt-create-pwd')?.value;
+  const btn   = document.getElementById('wlt-create-btn');
+  if (!label || !pwd) return;
+
+  if (typeof ethers === 'undefined') {
+    showToast('⚠️ กำลังโหลด ethers.js กรุณารอสักครู่...');
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'กำลังสร้าง...'; }
+
+  try {
+    let address, pk, mnemonic;
+
+    if (wlt.selectedChain === 'SOL') {
+      // ── Solana: @noble/ed25519 Ed25519 keypair ──
+      if (typeof self === 'undefined' || !self.nobleEd25519) {
+        throw new Error('noble/ed25519 ยังไม่โหลด กรุณารอสักครู่แล้วลองใหม่');
+      }
+      const solWallet = solGenerateWallet();
+      address  = solWallet.address;
+      pk       = solWallet.privateKey;   // Base58 seed (Phantom compatible)
+      mnemonic = '(Solana — ไม่มี Mnemonic, ใช้ Private Key ในการ restore)';
+    } else {
+      // ── EVM: ethers.js ──
+      if (typeof ethers === 'undefined') throw new Error('ethers.js ยังไม่โหลด');
+      const wallet = ethers.Wallet.createRandom();
+      address  = wallet.address;
+      pk       = wallet.privateKey;
+      mnemonic = wallet.mnemonic.phrase;
+    }
+
+    // Encrypt PK ด้วย Password (Web Crypto API — browser only)
+    const { encrypted_pk, iv, salt } = await wltEncryptPK(pk, pwd);
+
+    // เก็บ pending wallet ไว้แสดงใน Backup screen
+    wlt.pendingWallet = {
+      label, chain: wlt.selectedChain,
+      address, mnemonic, privateKey: pk,
+      encrypted_pk, iv, salt,
+    };
+
+    // แสดง Backup screen
+    wltRenderBackup();
+    wltGoto('backup');
+
+  } catch(e) {
+    showToast('❌ สร้างกระเป๋าไม่สำเร็จ: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'สร้างกระเป๋า'; }
+  }
+};
+
+/* ════════════════════════════════
+   IMPORT WALLET
+════════════════════════════════ */
+window.wltValidateImportPK = function() {
+  const pk      = document.getElementById('wlt-imp-pk')?.value.trim();
+  const preview = document.getElementById('wlt-imp-addr-preview');
+  if (!preview) return;
+  if (!pk) { preview.style.display = 'none'; return; }
+
+  const chain = wlt.selectedChainImp || 'BSC';
+  try {
+    if (chain === 'SOL') {
+      // Solana: Base58 PK (seed 32 bytes หรือ full keypair 64 bytes)
+      if (!solValidatePK(pk)) { preview.style.display = 'none'; return; }
+      const addr = solDeriveAddressFromPK(pk);
+      preview.style.display = 'block';
+      preview.style.color   = 'var(--g)';
+      preview.textContent   = '✅ SOL Address: ' + addr;
+    } else {
+      // EVM
+      if (!pk.startsWith('0x') || pk.length !== 66) { preview.style.display = 'none'; return; }
+      const wallet = new ethers.Wallet(pk);
+      preview.style.display = 'block';
+      preview.style.color   = 'var(--g)';
+      preview.textContent   = '✅ Address: ' + wallet.address;
+    }
+  } catch(e) {
+    preview.style.display = 'block';
+    preview.style.color   = 'var(--r)';
+    preview.textContent   = '❌ Private Key ไม่ถูกต้อง';
+  }
+};
+
+window.wltDoImport = async function() {
+  const pk    = document.getElementById('wlt-imp-pk')?.value.trim();
+  const pwd   = document.getElementById('wlt-imp-pwd')?.value;
+  const pwd2  = document.getElementById('wlt-imp-pwd2')?.value;
+  const label = document.getElementById('wlt-imp-label')?.value.trim() || 'Import Wallet';
+
+  if (!pk || !pwd) { showToast('กรุณากรอก Private Key และ Password'); return; }
+  if (pwd !== pwd2) { showToast('Password ไม่ตรงกัน'); return; }
+
+  try {
+    let address;
+    if (wlt.selectedChainImp === 'SOL') {
+      // Solana: validate Base58 PK (32 or 64 bytes)
+      if (!solValidatePK(pk)) { showToast('❌ Solana Private Key ไม่ถูกต้อง (ต้องเป็น Base58 32/64 bytes)'); return; }
+      address = solDeriveAddressFromPK(pk);
+    } else {
+      // EVM
+      if (!pk.startsWith('0x') || pk.length !== 66) { showToast('❌ EVM Private Key ไม่ถูกต้อง (0x + 64 hex)'); return; }
+      const wallet = new ethers.Wallet(pk);
+      address = wallet.address;
+    }
+
+    const { encrypted_pk, iv, salt } = await wltEncryptPK(pk, pwd);
+
+    wlt.pendingWallet = {
+      label, chain: wlt.selectedChainImp,
+      address, mnemonic: '(imported — no mnemonic)', privateKey: pk,
+      encrypted_pk, iv, salt,
+    };
+
+    // สำหรับ Import ไม่มี Mnemonic — ข้ามไป Success โดยตรง
+    await wltSaveWallet();
+    wltGoto('success');
+  } catch(e) {
+    showToast('❌ Import ไม่สำเร็จ: ' + e.message);
+    // [FIX] คืน button state ให้กดได้อีก
+    const _impBtn = document.getElementById('wlt-do-import-btn');
+    if (_impBtn) { _impBtn.disabled = false; _impBtn.textContent = 'Import กระเป๋า'; }
+  }
+};
+
+/* ════════════════════════════════
+   BACKUP SCREEN
+════════════════════════════════ */
+function wltRenderBackup() {
+  const pw = wlt.pendingWallet;
+  if (!pw) return;
+
+  const isSol = pw.chain === 'SOL';
+
+  // Mnemonic grid
+  const grid    = document.getElementById('wlt-mn-grid');
+  const solNote = document.getElementById('wlt-mn-sol-note');
+  if (solNote) solNote.style.display = isSol ? 'inline' : 'none';
+  if (grid) {
+    if (isSol) {
+      // SOL ไม่มี Mnemonic — แสดงข้อความแทน
+      grid.innerHTML = `<div style="grid-column:1/-1;padding:12px;background:rgba(153,69,255,.08);border:1px solid rgba(153,69,255,.25);border-radius:8px;font-size:12px;color:#9945ff;line-height:1.6">
+        <strong>◎ Solana Wallet</strong><br>
+        กระเป๋า Solana ไม่ใช้ Mnemonic 12 คำ<br>
+        ใช้ <strong>Private Key (Base58)</strong> ด้านล่างในการ restore
+      </div>`;
+    } else {
+      const words = pw.mnemonic.split(' ');
+      grid.innerHTML = words.map((w,i) =>
+        `<div class="wlt-mn-word"><span class="wlt-mn-num">${i+1}</span><span class="wlt-mn-txt">${w}</span></div>`
+      ).join('');
+    }
+  }
+  // PK display — label ต่างกันตาม chain
+  const pkEl = document.getElementById('wlt-pk-display');
+  if (pkEl) pkEl.textContent = pw.privateKey;
+
+  // Reset checks
+  wlt.checks = { c1:false, c2:false, c3:false };
+  ['c1','c2','c3'].forEach(id => {
+    const el = document.getElementById('wlt-' + id);
+    if (el) el.className = 'wlt-checkbox';
+  });
+  const btn = document.getElementById('wlt-confirm-backup-btn');
+  if (btn) btn.disabled = true;
+}
+
+window.wltToggleCheck = function(id) {
+  wlt.checks[id] = !wlt.checks[id];
+  const el = document.getElementById('wlt-' + id);
+  if (el) el.className = 'wlt-checkbox' + (wlt.checks[id] ? ' checked' : '');
+  const allDone = wlt.checks.c1 && wlt.checks.c2 && wlt.checks.c3;
+  const btn = document.getElementById('wlt-confirm-backup-btn');
+  if (btn) btn.disabled = !allDone;
+};
+
+window.wltConfirmBackup = async function() {
+  const btn = document.getElementById('wlt-confirm-backup-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'กำลังบันทึก...'; }
+  try {
+    await wltSaveWallet();
+    // ล้าง PK ออกจากหน่วยความจำ
+    const pkEl = document.getElementById('wlt-pk-display');
+    if (pkEl) pkEl.textContent = '••••••••••••••••••••••••••••••';
+    wlt.pendingWallet.privateKey = null;
+    wltGoto('success');
+  } catch(e) {
+    showToast('❌ บันทึกไม่สำเร็จ: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✅ ยืนยัน — บันทึกครบแล้ว'; }
+  }
+};
+
+/* ════════════════════════════════
+   SAVE WALLET → localStorage + NocoDB
+════════════════════════════════ */
+// [FIX] guard กัน double-submit (กดซ้ำระหว่าง async save)
+let _wltSaving = false;
+
+async function wltSaveWallet() {
+  if (_wltSaving) throw new Error('กำลังบันทึกอยู่ — กรุณารอ');
+  _wltSaving = true;
+  try {
+    const pw = wlt.pendingWallet;
+    if (!pw) throw new Error('No pending wallet');
+
+    // [FIX] ป้องกัน address ซ้ำ — ตรวจ localStorage ก่อน save
+    const existing = wltGetLocalWallets();
+    const dupAddr = existing.find(function(w) {
+      return w.address && pw.address &&
+             w.address.toLowerCase() === pw.address.toLowerCase() &&
+             w.chain === pw.chain;
+    });
+    if (dupAddr) {
+      throw new Error('Address นี้มีในกระเป๋าแล้ว (' + (dupAddr.label || 'Wallet') + ')');
+    }
+
+    const walletRecord = {
+      id          : 'wlt_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      label       : pw.label,
+      chain       : pw.chain,
+      address     : pw.address,
+      encrypted_pk: pw.encrypted_pk,
+      iv          : pw.iv,
+      salt        : pw.salt,
+      created_at  : new Date().toISOString(),
+    };
+
+    // 1. เก็บใน localStorage ก่อนเสมอ (offline-first)
+    existing.push(walletRecord);
+    try { localStorage.setItem(WLT_STORAGE_KEY, JSON.stringify(existing)); } catch(e) {}
+
+    // 2. [FIX] ส่งขึ้น GAS_WALLET_URL เท่านั้น — dbCallRaw (SCRIPT_URL หลัก) ไม่รู้จัก saveWallet
+    const uid = (typeof USER_PROFILE !== 'undefined' && USER_PROFILE) ? USER_PROFILE.uid : null;
+    if (uid) {
+      try {
+        await dbCallRawWallet('saveWallet', {
+          uid,
+          wallet_id    : walletRecord.id,
+          label        : walletRecord.label,
+          chain        : walletRecord.chain,
+          address      : walletRecord.address,
+          encrypted_pk : walletRecord.encrypted_pk,
+          iv           : walletRecord.iv,
+          salt         : walletRecord.salt,
+        });
+        // log tx type=create เพื่อเก็บ timeline การสร้างกระเป๋า
+        await dbCallRawWallet('saveWalletTx', {
+          uid,
+          wallet_id : walletRecord.id,
+          type      : 'create',
+          token     : walletRecord.chain === 'SOL' ? 'SOL' : 'BNB',
+          amount    : 0,
+          from_addr : '',
+          to_addr   : walletRecord.address,
+          tx_hash   : '',
+          chain     : walletRecord.chain,
+          status    : 'confirmed',
+          tag       : 'สร้างกระเป๋า: ' + (walletRecord.label || ''),
+        });
+      } catch(e) {
+        // GAS Wallet fail — localStorage ยังเก็บอยู่ (offline-first)
+        console.warn('TCC Wallet GAS: saveWallet failed (local backup kept)', e);
+      }
+    }
+
+    // อัปเดต state
+    wlt.wallets = existing;
+    wlt.pendingWallet = null;
+  } finally {
+    _wltSaving = false;
+  }
+}
+
+/* ════════════════════════════════
+   LOCAL WALLET STORAGE
+════════════════════════════════ */
+function wltGetLocalWallets() {
+  try {
+    const raw = localStorage.getItem(WLT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+function wltLoadWallets() {
+  wlt.wallets = wltGetLocalWallets();
+  wltRenderWalletCards();
+  // แสดง/ซ่อน "ยังไม่มีกระเป๋า"
+  const notice = document.getElementById('wlt-no-wallet-notice');
+  if (notice) notice.style.display = wlt.wallets.length === 0 ? 'block' : 'none';
+  // อัปเดต dropdown
+  wltPopulateRevealSel();
+  wltPopulateReceiveSel();
+  wltPopulateSendSel();
+}
+
+/* ════════════════════════════════
+   RENDER WALLET CARDS (My Wallets tab)
+════════════════════════════════ */
+function wltRenderWalletCards() {
+  const container = document.getElementById('wlt-wallet-list-container');
+  if (!container) return;
+  if (wlt.wallets.length === 0) {
+    container.innerHTML = `<div class="wlt-empty"><div class="wlt-empty-ico">👛</div><div class="wlt-empty-title">ยังไม่มีกระเป๋า</div><div class="wlt-empty-sub">กดสร้างกระเป๋าแรกของคุณ</div></div>`;
+    return;
+  }
+  // MetaMask-style list rows
+  container.innerHTML = wlt.wallets.map(w => {
+    const ico = w.chain === 'SOL' ? '◎' : w.chain === 'ETH' ? 'Ξ' : 'B';
+    const icoColor = w.chain === 'SOL' ? '#9945ff' : w.chain === 'ETH' ? '#627eea' : '#f0b90b';
+    const addrShort = (w.address||'').slice(0,8) + '...' + (w.address||'').slice(-6);
+    return `
+    <div class="wlt-wallet-card" style="display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);gap:12px">
+      <div style="width:38px;height:38px;border-radius:10px;background:${icoColor}22;color:${icoColor};display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0">${ico}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--t1)">${_esc(w.label||'Wallet')}</div>
+        <div style="font-size:11px;color:var(--t3);margin-top:2px;font-family:var(--mono)">${addrShort}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg3);color:var(--t2);border:1px solid var(--border)">${_esc(w.chain||'BSC')}</span>
+        <button class="wlt-wallet-act-btn" onclick="wltCopyAddr('${_esc(w.address)}')">📋</button>
+        <button class="wlt-wallet-act-btn" onclick="wltOpenReceiveForWallet('${w.id}')">📥</button>
+        <button class="wlt-wallet-act-btn primary" onclick="wltOpenRevealForWallet('${w.id}')">🔑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ════════════════════════════════
+   SUCCESS SCREEN — QR Code
+════════════════════════════════ */
+function wltRenderSuccessQR() {
+  // เอา wallet ล่าสุดที่สร้าง
+  const wallets = wltGetLocalWallets();
+  const latest  = wallets[wallets.length - 1];
+  if (!latest) return;
+
+  const addrEl    = document.getElementById('wlt-success-addr');
+  const labelEl   = document.getElementById('wlt-success-label-display');
+  const chainEl   = document.getElementById('wlt-success-chain-display');
+  const qrWrapper = document.getElementById('wlt-qr-code');
+
+  if (addrEl)  addrEl.textContent  = latest.address;
+  if (labelEl) labelEl.textContent = latest.label;
+  if (chainEl) chainEl.textContent = latest.chain;
+  wlt._successAddr = latest.address;
+
+  // อัปเดต label และ description ตาม chain
+  const isBtcSucc = latest.chain === 'BTC';
+  const addrLbl = document.getElementById('wlt-success-addr-label');
+  const descEl  = document.getElementById('wlt-success-desc');
+  if (addrLbl) addrLbl.textContent = isBtcSucc ? 'Bitcoin Address (Native SegWit)' : 'Address (BEP-20)';
+  if (descEl)  descEl.innerHTML   = isBtcSucc
+    ? 'ฝาก <strong>BTC</strong> เข้า Address นี้<br>รองรับเฉพาะ Bitcoin Network (Native SegWit · bc1q)'
+    : 'ฝาก USDT (BEP-20) เข้า Address นี้<br>เพื่อใช้เป็น Collateral สำหรับ TCC Loan';
+
+  if (qrWrapper) {
+    qrWrapper.innerHTML = '';
+    if (typeof QRCode !== 'undefined') {
+      new QRCode(qrWrapper, {
+        text: latest.address, width:200, height:200,
+        colorDark:'#000000', colorLight:'#ffffff',
+        correctLevel: QRCode.CorrectLevel.L
+      });
+    } else {
+      qrWrapper.innerHTML = `<div style="color:var(--t3);font-size:11px;text-align:center;padding:10px">QR Code<br>${_shortAddr(latest.address)}</div>`;
+    }
+  }
+}
+
+/* ════════════════════════════════
+   REVEAL PK
+════════════════════════════════ */
+function wltPopulateRevealSel() {
+  const sel = document.getElementById('wlt-reveal-wallet-sel');
+  if (!sel) return;
+  const ws = wltGetLocalWallets();
+  sel.innerHTML = '<option value="">— เลือกกระเป๋า —</option>' +
+    ws.map(w => `<option value="${w.id}">${_esc(w.label)} (${_shortAddr(w.address)})</option>`).join('');
+}
+
+window.wltCheckReveal = function() {
+  const sel = document.getElementById('wlt-reveal-wallet-sel')?.value;
+  const pwd = document.getElementById('wlt-reveal-pwd')?.value;
+  const btn = document.getElementById('wlt-reveal-btn');
+  if (btn) btn.disabled = !(sel && pwd && pwd.length >= 4);
+};
+
+window.wltDoReveal = async function() {
+  const selId = document.getElementById('wlt-reveal-wallet-sel')?.value;
+  const pwd   = document.getElementById('wlt-reveal-pwd')?.value;
+  if (!selId || !pwd) return;
+
+  const ws  = wltGetLocalWallets();
+  const rec = ws.find(w => w.id === selId);
+  if (!rec) { showToast('ไม่พบกระเป๋า'); return; }
+
+  const btn = document.getElementById('wlt-reveal-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'กำลัง Decrypt...'; }
+
+  try {
+    const pk = await wltDecryptPK(rec.encrypted_pk, rec.iv, rec.salt, pwd);
+    if (!pk) {
+      showToast('❌ Password ไม่ถูกต้อง');
+      if (btn) { btn.disabled = false; btn.textContent = '🔓 Decrypt & แสดง Private Key'; }
+      return;
+    }
+
+    const revealArea = document.getElementById('wlt-pk-revealed-area');
+    const pkText     = document.getElementById('wlt-revealed-pk-text');
+    if (revealArea) revealArea.style.display = 'block';
+    if (pkText) pkText.textContent = pk;
+    wlt._revealedPK = pk;
+
+    // Log action
+    const uid = (typeof USER_PROFILE !== 'undefined' && USER_PROFILE) ? USER_PROFILE.uid : null;
+    if (uid) {
+      try { await dbCallRaw('logWalletAction', { uid, wallet_id: rec.id, action: 'REVEAL_PK' }); } catch(e) {}
+    }
+
+    // Start 30-second timer
+    wltStartRevealTimer();
+
+  } catch(e) {
+    showToast('❌ เกิดข้อผิดพลาด: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔓 Decrypt & แสดง Private Key'; }
+  }
+};
+
+function wltStartRevealTimer() {
+  if (wlt.revealTimer) clearInterval(wlt.revealTimer);
+  let sec = 30;
+  wlt.revealTimer = setInterval(() => {
+    sec--;
+    const c1 = document.getElementById('wlt-countdown');
+    const c2 = document.getElementById('wlt-countdown2');
+    const fill = document.getElementById('wlt-timer-fill');
+    if (c1) c1.textContent = sec;
+    if (c2) c2.textContent = sec;
+    if (fill) fill.style.width = (sec / 30 * 100) + '%';
+    if (sec <= 0) {
+      clearInterval(wlt.revealTimer);
+      const area  = document.getElementById('wlt-pk-revealed-area');
+      const pkEl  = document.getElementById('wlt-revealed-pk-text');
+      if (area) area.style.display = 'none';
+      if (pkEl) pkEl.textContent = '—';
+      wlt._revealedPK = null;
+      document.getElementById('wlt-reveal-pwd').value = '';
+      document.getElementById('wlt-reveal-btn').disabled = true;
+    }
+  }, 1000);
+}
+
+/* ════════════════════════════════
+   RECEIVE
+════════════════════════════════ */
+function wltPopulateReceiveSel() {
+  const sel = document.getElementById('wlt-receive-wallet-sel');
+  if (!sel) return;
+  const ws = wltGetLocalWallets();
+  // เรียงล่าสุดก่อน (push → ล่าสุดอยู่ท้าย → reverse)
+  const sorted = [...ws].reverse();
+  sel.innerHTML = '<option value="">— เลือกกระเป๋า —</option>' +
+    sorted.map(w => `<option value="${w.address}">${_esc(w.label)} · ${_esc(w.chain || 'BSC')} (${_shortAddr(w.address)})</option>`).join('');
+  if (sorted.length > 0) { sel.value = sorted[0].address; wltRenderReceiveQR(); }
+}
+
+window.wltRenderReceiveQR = function() {
+  const sel    = document.getElementById('wlt-receive-wallet-sel');
+  const addr   = sel ? sel.value : '';
+  const addrEl = document.getElementById('wlt-receive-addr');
+  const qrWrap = document.getElementById('wlt-receive-qr');
+  if (addrEl) addrEl.textContent = addr || '—';
+  wlt._receiveAddr = addr;
+
+  // หา chain ของ wallet ที่เลือก
+  const ws  = wltGetLocalWallets();
+  const rec = ws.find(w => w.address === addr);
+  const isBtcRec = rec?.chain === 'BTC';
+  const netLbl  = document.getElementById('wlt-receive-network-label');
+  const warnEl  = document.getElementById('wlt-receive-warning-text');
+  if (netLbl) netLbl.textContent = isBtcRec ? 'Network: Bitcoin (BTC)' : 'Network: BSC (BEP-20)';
+  if (warnEl) warnEl.innerHTML  = isBtcRec
+    ? '⚠️ ส่งเฉพาะ <strong>BTC</strong> บน Bitcoin Network เท่านั้น<br>ส่งผิด Network = สูญเสียถาวร'
+    : '⚠️ ส่งเฉพาะ <strong>BEP-20 Token</strong> บน BSC เท่านั้น<br>ส่งผิด Network = สูญเสียถาวร';
+  if (qrWrap) {
+    qrWrap.innerHTML = '';
+    if (addr && typeof QRCode !== 'undefined') {
+      new QRCode(qrWrap, { text:addr, width:200, height:200, colorDark:'#000', colorLight:'#fff', correctLevel:QRCode.CorrectLevel.L });
+    } else if (addr) {
+      qrWrap.innerHTML = `<div style="font-size:10px;color:var(--t3);word-break:break-all;padding:8px">${addr}</div>`;
+    }
+  }
+};
+
+window.wltCopyReceiveAddr = function() {
+  const addr = wlt._receiveAddr;
+  if (!addr) { showToast('ไม่พบ Address'); return; }
+  _copyToClipboard(addr);
+  showToast('📋 Copy Address แล้ว!');
+};
+
+window.wltShareAddr = function() {
+  const addr = wlt._receiveAddr;
+  if (!addr) { showToast('ไม่พบ Address'); return; }
+  wltOpenShareSheet(addr, document.getElementById('wlt-receive-qr'));
+};
+
+/* ════════════════════════════════
+   SEND
+════════════════════════════════ */
+function wltPopulateSendSel() {
+  const sel = document.getElementById('wlt-send-wallet-sel');
+  if (!sel) return;
+  const ws = wltGetLocalWallets();
+  sel.innerHTML = '<option value="">— เลือกกระเป๋า —</option>' +
+    ws.map(w => `<option value="${w.id}">${_esc(w.label)} (${_shortAddr(w.address)})</option>`).join('');
+  if (ws.length > 0) { sel.value = ws[0].id; wltUpdateSendBalance(); wltUpdateSendTokenOptions(); }
+}
+
+window.wltUpdateSendBalance = function() {
+  const selId = document.getElementById('wlt-send-wallet-sel')?.value;
+  const ws    = wltGetLocalWallets();
+  const rec   = ws.find(w => w.id === selId);
+  const isSol = rec?.chain === 'SOL';
+
+  const avail  = document.getElementById('wlt-send-avail');
+  const locked = document.getElementById('wlt-send-locked');
+  const notice = document.getElementById('wlt-send-lock-notice');
+
+  if (isSol) {
+    if (avail)  avail.textContent  = wlt.solBal.toFixed(4) + ' SOL';
+    if (locked) locked.textContent = '0.00';
+    if (notice) notice.style.display = 'none';
+  } else {
+    if (avail)  avail.textContent  = (wlt.usdtBal - wlt.lockedUsdt).toFixed(2);
+    if (locked) locked.textContent = wlt.lockedUsdt.toFixed(2);
+    if (notice) notice.style.display = wlt.lockedUsdt > 0 ? 'block' : 'none';
+  }
+  wltUpdateSendTokenOptions();
+};
+
+window.wltCalcSendFee = function() {
+  const amt = parseFloat(document.getElementById('wlt-send-amount')?.value) || 0;
+  const tok = document.getElementById('wlt-send-token')?.value || 'USDT';
+  const sumAmt   = document.getElementById('wlt-send-summary-amount');
+  const sumTotal = document.getElementById('wlt-send-summary-total');
+  if (sumAmt)   sumAmt.textContent   = amt.toFixed(2) + ' ' + tok;
+  if (sumTotal) sumTotal.textContent = amt.toFixed(2) + ' ' + tok + ' + Gas';
+};
+
+window.wltDoSend = async function() {
+  const selId = document.getElementById('wlt-send-wallet-sel')?.value;
+  const toAddr = document.getElementById('wlt-send-to')?.value.trim();
+  const amount = parseFloat(document.getElementById('wlt-send-amount')?.value) || 0;
+  const token  = document.getElementById('wlt-send-token')?.value || 'USDT';
+  const pwd    = document.getElementById('wlt-send-pwd')?.value;
+
+  if (!selId)  { showToast('กรุณาเลือกกระเป๋า'); return; }
+  if (!toAddr) { showToast('กรุณากรอก To Address'); return; }
+  if (amount <= 0) { showToast('กรุณากรอกจำนวนที่ถูกต้อง'); return; }
+  if (!pwd)    { showToast('กรุณากรอก Wallet Password'); return; }
+  // Validate address format ตาม chain
+  const ws  = wltGetLocalWallets();
+  const rec = ws.find(w => w.id === selId);
+  if (!rec) { showToast('ไม่พบกระเป๋า'); return; }
+
+  const isSol = rec.chain === 'SOL';
+  if (isSol) {
+    // Solana address: Base58 ~32-44 chars
+    if (toAddr.length < 32 || toAddr.length > 44) { showToast('❌ Solana Address ไม่ถูกต้อง'); return; }
+  } else {
+    // EVM address: 0x + 40 hex
+    if (!toAddr.startsWith('0x') || toAddr.length !== 42) { showToast('❌ EVM Address ไม่ถูกต้อง'); return; }
+  }
+
+  // เช็ค Collateral Lock (USDT เท่านั้น)
+  const available = wlt.usdtBal - wlt.lockedUsdt;
+  if (token === 'USDT' && amount > available) {
+    showToast(`❌ ยอดที่ใช้งานได้มีแค่ ${available.toFixed(2)} USDT`); return;
+  }
+
+  showToast('🔓 กำลัง Decrypt & Sign Transaction...');
+
+  try {
+    // Decrypt PK
+    const pk = await wltDecryptPK(rec.encrypted_pk, rec.iv, rec.salt, pwd);
+    if (!pk) { showToast('❌ Password ไม่ถูกต้อง'); return; }
+
+    let txHash = '';
+
+    if (isSol) {
+      // ══ Solana Transfer (SOL native) ══
+      // ใช้ @noble/ed25519 sign transaction แบบ manual JSON-RPC
+      txHash = await wltSolTransfer(pk, toAddr, amount);
+    } else {
+      // ══ EVM Transfer (BSC) ══
+      const provider = new ethers.providers.JsonRpcProvider(WLT_BSC_RPC);
+      const wallet   = new ethers.Wallet(pk, provider);
+      let tx;
+      if (token === 'BNB') {
+        tx = await wallet.sendTransaction({
+          to: toAddr, value: ethers.utils.parseEther(amount.toString()),
+        });
+      } else {
+        const usdtABI  = ['function transfer(address to, uint256 amount) returns (bool)'];
+        const contract = new ethers.Contract(WLT_USDT_CONTRACT, usdtABI, wallet);
+        tx = await contract.transfer(toAddr, ethers.utils.parseUnits(amount.toString(), 18));
+      }
+      showToast('✅ TX ส่งแล้ว! กำลังรอ Confirm...');
+      const receipt = await tx.wait(1);
+      if (receipt.status !== 1) { showToast('❌ ธุรกรรมล้มเหลว'); return; }
+      txHash = tx.hash;
+    }
+
+    showToast('✅ ธุรกรรมสำเร็จ! TX: ' + (txHash||'').slice(0,14) + '...');
+    // [FIX #2] เพิ่ม from: rec.address เพื่อบันทึก from_addr ใน GAS sheet ด้วย
+    wltSaveTxHistory({ type:'send', token, amount, from: rec.address, to:toAddr, hash:txHash, status:'confirmed', chain: rec.chain });
+    wltRefreshBalance();
+    wltGoto('history');
+
+  } catch(e) {
+    const msg = e.message || '';
+    if (msg.includes('insufficient funds') || msg.includes('insufficient lamports')) {
+      showToast('❌ ยอดไม่พอจ่าย Gas Fee');
+    } else {
+      showToast('❌ ส่งไม่สำเร็จ: ' + msg.slice(0,60));
+    }
+  }
+};
+
+/* ════════════════════════════════
+   SOLANA TRANSFER — JSON-RPC manual signing
+   ใช้ @noble/ed25519 + base58 โดยตรง (ไม่ต้อง @solana/web3.js)
+════════════════════════════════ */
+async function wltSolTransfer(pkBase58, toAddress, amountSol) {
+  const ed      = self.nobleEd25519;
+  const lamports = Math.round(amountSol * 1e9);
+
+  // Derive seed + publicKey จาก pk
+  // รองรับทั้ง seed 32 bytes และ full secretKey 64 bytes (TweetNaCl convention)
+  const pkBytes  = solBase58Decode(pkBase58.trim());
+  const seed     = pkBytes.length === 64 ? pkBytes.slice(0, 32) : pkBytes;
+  if (seed.length !== 32) throw new Error('Invalid Solana private key length');
+  const fromPubkey = ed.getPublicKey(seed);  // 32 bytes (sync)
+  const toPubkey   = solBase58Decode(toAddress); // 32 bytes
+
+  // ดึง recent blockhash
+  const bhRes = await fetch(WLT_SOL_RPC, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'getLatestBlockhash', params:[{'commitment':'finalized'}] })
+  });
+  const bhData    = await bhRes.json();
+  const blockhash = bhData?.result?.value?.blockhash;
+  if (!blockhash) throw new Error('ดึง blockhash ไม่ได้');
+  const blockHashBytes = solBase58Decode(blockhash);
+
+  // สร้าง SOL Transfer instruction (System Program)
+  // https://docs.solana.com/developing/runtime-facilities/programs#system-program
+  const SYSTEM_PROGRAM = new Uint8Array(32); // all zeros
+  const instructionData = new Uint8Array(12);
+  // instruction index = 2 (transfer)
+  new DataView(instructionData.buffer).setUint32(0, 2, true);
+  // lamports (u64 little-endian)
+  new DataView(instructionData.buffer).setBigUint64(4, BigInt(lamports), true);
+
+  // สร้าง Transaction Message (legacy format)
+  // Header: numRequiredSignatures=1, numReadonlySigned=0, numReadonlyUnsigned=1
+  const header = new Uint8Array([1, 0, 1]);
+  // Account keys: from, to, system_program
+  const accountKeys = new Uint8Array(3 * 32);
+  accountKeys.set(fromPubkey,   0);
+  accountKeys.set(toPubkey,     32);
+  accountKeys.set(SYSTEM_PROGRAM, 64);
+  // Recent blockhash
+  const instructions = new Uint8Array([
+    1,           // number of instructions
+    2,           // program account index (system program = index 2)
+    2,           // number of accounts
+    0,           // account 0 = from (writable+signer)
+    1,           // account 1 = to (writable)
+    instructionData.length, ...instructionData
+  ]);
+  // Assemble message
+  const message = new Uint8Array(
+    header.length + 1 + accountKeys.length + blockHashBytes.length + instructions.length
+  );
+  let off = 0;
+  message.set(header, off); off += header.length;
+  message[off++] = 3; // number of accounts
+  message.set(accountKeys, off); off += accountKeys.length;
+  message.set(blockHashBytes, off); off += blockHashBytes.length;
+  message.set(instructions, off);
+
+  // Sign — noble/ed25519: sign(message, seed32) → Uint8Array 64 bytes
+  const sig = ed.sign(message, seed);
+
+  // Assemble Transaction: [numSigs=1][sig][message]
+  const tx = new Uint8Array(1 + 64 + message.length);
+  tx[0] = 1;
+  tx.set(sig, 1);
+  tx.set(message, 65);
+
+  // Base64 encode → sendTransaction
+  const txB64 = btoa(String.fromCharCode(...tx));
+  const sendRes = await fetch(WLT_SOL_RPC, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'sendTransaction',
+      params: [txB64, { encoding: 'base64', preflightCommitment: 'confirmed' }]
+    })
+  });
+  const sendData = await sendRes.json();
+  if (sendData.error) throw new Error(sendData.error.message || 'SOL TX failed');
+  return sendData.result; // TX signature (hash)
+}
+
+/* ════════════════════════════════
+   SEND TOKEN FILTER — แสดง token ตาม chain ที่เลือก
+════════════════════════════════ */
+window.wltUpdateSendTokenOptions = function() {
+  const selId = document.getElementById('wlt-send-wallet-sel')?.value;
+  const tokSel = document.getElementById('wlt-send-token');
+  const feeLabel = document.getElementById('wlt-send-fee-label');
+  if (!selId || !tokSel) return;
+  const ws  = wltGetLocalWallets();
+  const rec = ws.find(w => w.id === selId);
+  if (!rec) return;
+  const isSol = rec.chain === 'SOL';
+  // ซ่อน/แสดง options ตาม chain
+  Array.from(tokSel.options).forEach(opt => {
+    if (isSol) {
+      opt.style.display = opt.value === 'SOL' ? '' : 'none';
+    } else {
+      opt.style.display = opt.value === 'SOL' ? 'none' : '';
+    }
+  });
+  tokSel.value = isSol ? 'SOL' : 'USDT';
+  // อัปเดต fee label
+  if (feeLabel) {
+    feeLabel.textContent = isSol
+      ? 'ค่า Fee ≈ 0.000005 SOL (~฿0.01)'
+      : 'ค่า Gas ≈ 0.0005 BNB (~฿9)';
+  }
+};
+
+/* ════════════════════════════════
+   TX HISTORY (localStorage)
+════════════════════════════════ */
+function wltSaveTxHistory(tx) {
+  const key = 'tcc_wallet_tx_history';
+  const record = { ...tx, date: new Date().toISOString() };
+  // 1. บันทึก localStorage (offline-first)
+  try {
+    const history = JSON.parse(localStorage.getItem(key) || '[]');
+    history.unshift(record);
+    if (history.length > 100) history.pop();
+    localStorage.setItem(key, JSON.stringify(history));
+  } catch(e) {}
+  // 2. [WALLET GAS] sync ขึ้น Google Sheets Wallet DB
+  const uid = (typeof USER_PROFILE !== 'undefined' && USER_PROFILE) ? USER_PROFILE.uid : null;
+  if (uid) {
+    dbCallRawWallet('saveWalletTx', {
+      uid,
+      wallet_id : tx.wallet_id || '',
+      type      : tx.type      || 'send',
+      token     : tx.token     || 'USDT',
+      amount    : tx.amount    || 0,
+      from_addr : tx.from      || '',
+      to_addr   : tx.to        || '',
+      tx_hash   : tx.hash      || '',
+      chain     : tx.chain     || 'BSC',
+      status    : tx.status    || 'confirmed',
+      tag       : tx.tag       || '',
+    }).catch(function(e) {
+      console.warn('TCC Wallet GAS: saveWalletTx failed (localStorage kept)', e);
+    });
+  }
+}
+
+function wltGetTxHistory() {
+  try {
+    return JSON.parse(localStorage.getItem('tcc_wallet_tx_history') || '[]');
+  } catch(e) { return []; }
+}
+
+window.wltRenderHistory = function() {
+  const container = document.getElementById('wlt-history-list');
+  if (!container) return;
+  const history = wltGetTxHistory();
+  if (history.length === 0) {
+    container.innerHTML = `<div class="wlt-empty"><div class="wlt-empty-ico">📋</div><div class="wlt-empty-title">ยังไม่มีธุรกรรม</div><div class="wlt-empty-sub">ธุรกรรมจะแสดงที่นี่หลังจากมีการรับ-ส่งเหรียญ</div></div>`;
+    return;
+  }
+  container.innerHTML = history.map(tx => {
+    const isSend = tx.type === 'send';
+    const color  = isSend ? 'var(--r)' : 'var(--g)';
+    const bg     = isSend ? 'var(--r-10)' : 'var(--g-10)';
+    const sign   = isSend ? '-' : '+';
+    const ico    = isSend ? '↑' : '↓';
+    const dt     = tx.date ? new Date(tx.date).toLocaleDateString('th-TH') : '';
+    const chainBadge = tx.chain === 'SOL'
+      ? '<span style="font-size:9px;background:#9945ff22;color:#9945ff;border-radius:3px;padding:1px 5px;margin-left:4px">SOL</span>'
+      : '';
+    // [FIX #1] สร้าง explorer link โดยใช้ _explorerLinkFor ที่มีอยู่แล้ว
+    // ถ้ามี hash → แสดงเป็น <a> link ไป block explorer, row ยังกดได้แต่ไม่ซ้ำกัน
+    const explorerUrl = (typeof _explorerLinkFor === 'function')
+      ? _explorerLinkFor(tx.chain || 'BSC', tx.hash || '')
+      : (tx.chain === 'SOL'
+          ? 'https://solscan.io/tx/' + (tx.hash || '')
+          : 'https://bscscan.com/tx/' + (tx.hash || ''));
+    const hashDisplay = tx.hash
+      ? `<a href="${explorerUrl}" target="_blank" rel="noopener noreferrer"
+           onclick="event.stopPropagation()"
+           style="color:var(--y,#f0b90b);text-decoration:underline;font-size:11px"
+         >${tx.hash.slice(0,14)}...</a>`
+      : '';
+    return `<div class="wlt-tx-row" onclick="wltOpenTxDetail('${tx.hash||''}','${tx.chain||'BSC'}')">
+      <div class="wlt-tx-ico" style="background:${bg};color:${color}">${ico}</div>
+      <div class="wlt-tx-info">
+        <div class="wlt-tx-name">${isSend ? 'ส่ง' : 'รับ'} ${_esc(tx.token||'USDT')}${chainBadge}</div>
+        <div class="wlt-tx-sub">${hashDisplay}${hashDisplay ? ' · ' : ''}${_esc(tx.status||'')}</div>
+      </div>
+      <div class="wlt-tx-right">
+        <div class="wlt-tx-amount" style="color:${color}">${sign}${parseFloat(tx.amount||0).toFixed(2)}</div>
+        <div class="wlt-tx-status">${dt}</div>
+      </div>
+    </div><div class="wlt-divider"></div>`;
+  }).join('');
+};
+
+window.wltRefreshHistory = function() {
+  wltRenderHistory();
+  showToast('🔄 Refresh แล้ว');
+};
+
+// [FIX #1] wltOpenTxDetail ยังคงใช้ _explorerLinkFor แทน hardcode
+// เพื่อรองรับทุก network ที่ EXPLORER_TX_URL กำหนดไว้
+window.wltOpenTxDetail = function(hash, chain) {
+  if (!hash) return;
+  const url = (typeof _explorerLinkFor === 'function')
+    ? _explorerLinkFor(chain || 'BSC', hash)
+    : (chain === 'SOL'
+        ? 'https://solscan.io/tx/' + hash
+        : 'https://bscscan.com/tx/' + hash);
+  if (url) window.open(url, '_blank');
+};
+
+/* ════════════════════════════════
+   BALANCE — ดึงจาก BSC RPC
+════════════════════════════════ */
+window.wltRefreshBalance = async function() {
+  const wallets = wltGetLocalWallets();
+  if (wallets.length === 0) {
+    wltUpdateBalanceUI(0, 0); return;
+  }
+
+  // ดึง price THB จาก CoinGecko (cached 60s)
+  await wltFetchPrices();
+
+  // รวม Balance จากทุก wallet (แยก EVM vs SOL)
+  let totalUsdt = 0, totalBnb = 0, totalSol = 0;
+
+  // แยก wallets ตาม chain
+  const evmWallets = wallets.filter(w => w.chain !== 'SOL');
+  const solWallets = wallets.filter(w => w.chain === 'SOL');
+
+  // ── EVM (BSC/ETH/Polygon) ──
+  if (evmWallets.length > 0) {
+    const provider = new ethers.providers.JsonRpcProvider(WLT_BSC_RPC);
+    const usdtABI  = ['function balanceOf(address) view returns (uint256)'];
+    const usdtCon  = new ethers.Contract(WLT_USDT_CONTRACT, usdtABI, provider);
+    for (const w of evmWallets) {
+      try {
+        const [bnbWei, usdtRaw] = await Promise.all([
+          provider.getBalance(w.address),
+          usdtCon.balanceOf(w.address),
+        ]);
+        const bnbBal  = parseFloat(ethers.utils.formatEther(bnbWei));
+        const usdtBal = parseFloat(ethers.utils.formatUnits(usdtRaw, 18));
+        totalBnb  += bnbBal;
+        totalUsdt += usdtBal;
+        // [FIX] store per-wallet balance
+        wlt._balPerWallet[w.id] = { usdt: usdtBal, bnb: bnbBal, sol: 0 };
+        const cardBal = document.getElementById('wlt-card-bal-' + w.id);
+        if (cardBal) cardBal.textContent = usdtBal.toFixed(2) + ' USDT | ' + bnbBal.toFixed(4) + ' BNB';
+      } catch(e) { /* RPC error — skip */ }
+    }
+  }
+
+  // ── Solana ── (ใช้ JSON-RPC โดยตรง ไม่ต้อง @solana/web3.js)
+  for (const w of solWallets) {
+    try {
+      // ดึง SOL balance
+      const solRes = await fetch(WLT_SOL_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'getBalance',
+          params: [w.address]
+        })
+      });
+      const solData  = await solRes.json();
+      const lamports = solData?.result?.value || 0;
+      const solBal   = lamports / 1e9;  // 1 SOL = 1e9 lamports
+      totalSol += solBal;
+      // [FIX] store per-wallet balance
+      wlt._balPerWallet[w.id] = { usdt: 0, bnb: 0, sol: solBal };
+      const cardBal = document.getElementById('wlt-card-bal-' + w.id);
+      if (cardBal) cardBal.textContent = solBal.toFixed(4) + ' SOL';
+    } catch(e) { /* RPC error — skip */ }
+  }
+
+  wlt.bnbBal  = totalBnb;
+  wlt.usdtBal = totalUsdt;
+  wlt.solBal  = totalSol;
+  wltUpdateBalanceUI(totalUsdt, totalBnb, totalSol);
+};
+
+async function wltFetchPrices() {
+  const now = Date.now();
+  if (wlt._priceTs && now - wlt._priceTs < 60000) return; // cache 60s
+
+  // ลอง CoinGecko ก่อน — ถ้า fail ลอง Binance API (ไม่มี CORS issue)
+  let bnbUsd = 0, usdThb = 35, solUsd = 0;
+
+  try {
+    const res  = await fetch(WLT_COINGECKO_URL);
+    const data = await res.json();
+    wlt.usdtPriceTHB = data?.tether?.thb        || 35;
+    wlt.bnbPriceTHB  = data?.binancecoin?.thb    || 0;
+    wlt.solPriceTHB  = data?.solana?.thb         || 0;
+    wlt.bnbPriceUSD  = data?.binancecoin?.usd    || 0;
+    wlt.solPriceUSD  = data?.solana?.usd         || 0;
+    wlt.usdtPriceUSD = 1;   // USDT ≈ $1 เสมอ
+    // คำนวณ USD/THB จาก USDT (USDT ≈ $1 → tether.thb = อัตรา USD/THB)
+    wlt._usdToThb    = data?.tether?.thb || 35;
+    wlt._priceTs = now;
+    return; // CoinGecko สำเร็จ — จบ
+  } catch(e) { /* CoinGecko fail — ลอง Binance */ }
+
+  // Fallback: Binance public API (ไม่ต้อง API key)
+  try {
+    const [bnbRes, usdtRes] = await Promise.all([
+      fetch('https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT'),
+      fetch('https://api.binance.com/api/v3/ticker/price?symbol=USDTTHB').catch(() => null),
+    ]);
+    const bnbData  = await bnbRes.json();
+    bnbUsd = parseFloat(bnbData?.price) || 0;
+    if (usdtRes) {
+      const usdtData = await usdtRes.json();
+      usdThb = parseFloat(usdtData?.price) || 35;
+    }
+    wlt.bnbPriceUSD  = bnbUsd;
+    wlt.bnbPriceTHB  = bnbUsd * usdThb;
+    wlt.usdtPriceTHB = usdThb;
+    wlt.usdtPriceUSD = 1;
+    wlt._usdToThb    = usdThb;
+    wlt._priceTs = now;
+  } catch(e) {
+    // ทั้ง 2 แหล่งล้มเหลว — ใช้ fallback ค่าคงที่ (ไม่ปล่อยให้ BNB = 0)
+    wlt.usdtPriceTHB = wlt.usdtPriceTHB || 35;
+    wlt.bnbPriceTHB  = wlt.bnbPriceTHB  || (600 * 35); // ~BNB $600 × 35
+    wlt.bnbPriceUSD  = wlt.bnbPriceUSD  || 600;
+    wlt._usdToThb    = wlt._usdToThb    || 35;
+  }
+}
+
+function wltUpdateBalanceUI(usdt, bnb, sol = 0) {
+  const total    = usdt * wlt.usdtPriceTHB + bnb * wlt.bnbPriceTHB + sol * wlt.solPriceTHB;
+  const usdtThb  = usdt * wlt.usdtPriceTHB;
+  const bnbThb   = bnb  * wlt.bnbPriceTHB;
+  const solThb   = sol  * wlt.solPriceTHB;
+
+  const totUsdtEl = document.getElementById('wlt-total-usdt');
+  const totThbEl  = document.getElementById('wlt-total-thb');
+  const usdtBalEl = document.getElementById('wlt-usdt-bal');
+  const usdtThbEl = document.getElementById('wlt-usdt-thb');
+  const bnbBalEl  = document.getElementById('wlt-bnb-bal');
+  const bnbThbEl  = document.getElementById('wlt-bnb-thb');
+  const assetEl   = document.getElementById('wlt-asset-total');
+  const sendAvail = document.getElementById('wlt-send-avail');
+
+  if (totUsdtEl) totUsdtEl.textContent = usdt.toFixed(2);
+  if (totThbEl)  totThbEl.textContent  = '≈ ฿' + _fmtN(total);
+  if (usdtBalEl) usdtBalEl.textContent = usdt.toFixed(2);
+  if (usdtThbEl) usdtThbEl.textContent = '≈ ฿' + _fmtN(usdtThb);
+  if (bnbBalEl)  bnbBalEl.textContent  = bnb.toFixed(4);
+  if (bnbThbEl)  bnbThbEl.textContent  = '≈ ฿' + _fmtN(bnbThb);
+  if (assetEl)   assetEl.textContent   = usdt.toFixed(2) + ' USDT';
+  if (sendAvail) sendAvail.textContent = Math.max(0, usdt - wlt.lockedUsdt).toFixed(2);
+
+  // SOL elements
+  const solBalEl  = document.getElementById('wlt-sol-bal');
+  const solThbEl  = document.getElementById('wlt-sol-thb');
+  const solRowEl  = document.getElementById('wlt-sol-row');
+  if (solBalEl) solBalEl.textContent = sol.toFixed(4);
+  if (solThbEl) solThbEl.textContent = '≈ ฿' + _fmtN(solThb);
+  // แสดง SOL row เฉพาะเมื่อมี SOL wallet
+  const hasSol = wltGetLocalWallets().some(w => w.chain === 'SOL');
+  if (solRowEl) solRowEl.style.display = hasSol ? 'flex' : 'none';
+
+  // Lock badge USDT
+  const lockBadge = document.getElementById('wlt-usdt-lock');
+  if (lockBadge) lockBadge.style.display = wlt.lockedUsdt > 0 ? 'inline-flex' : 'none';
+
+  // Sync Home Wallet tab
+  if (typeof _hmSyncWalletBalance === 'function') _hmSyncWalletBalance();
+}
+
+/* ════════════════════════════════
+   TOKEN DETAIL POPUP (simple toast)
+════════════════════════════════ */
+window.wltShowTokenDetail = function(token) {
+  if (token === 'USDT') {
+    const avail  = Math.max(0, wlt.usdtBal - wlt.lockedUsdt);
+    showToast(`USDT: ${wlt.usdtBal.toFixed(2)} | ใช้ได้: ${avail.toFixed(2)} | Lock: ${wlt.lockedUsdt.toFixed(2)}`);
+  } else if (token === 'SOL') {
+    showToast('SOL: ' + wlt.solBal.toFixed(4) + ' | ≈ ฿' + _fmtN(wlt.solBal * wlt.solPriceTHB));
+  } else {
+    showToast('BNB: ' + wlt.bnbBal.toFixed(4));
+  }
+};
+
+/* ════════════════════════════════
+   COPY HELPERS
+════════════════════════════════ */
+window.wltCopyText = function(type) {
+  let text = '';
+  if (type === 'mnemonic' && wlt.pendingWallet) text = wlt.pendingWallet.mnemonic;
+  if (type === 'pk'       && wlt.pendingWallet) text = wlt.pendingWallet.privateKey || '';
+  if (type === 'address'  && wlt._successAddr)  text = wlt._successAddr;
+  if (type === 'revealed-pk' && wlt._revealedPK) text = wlt._revealedPK;
+  if (!text) { showToast('ไม่มีข้อมูล'); return; }
+  _copyToClipboard(text);
+  showToast('📋 Copy แล้ว!');
+};
+
+window.wltCopyAddr = function(addr) {
+  _copyToClipboard(addr);
+  showToast('📋 Copy Address แล้ว!');
+};
+
+window.wltOpenReceiveForWallet = function(id) {
+  wltGoto('receive');
+  setTimeout(() => {
+    const sel = document.getElementById('wlt-receive-wallet-sel');
+    const ws  = wltGetLocalWallets();
+    const rec = ws.find(w => w.id === id);
+    if (sel && rec) { sel.value = rec.address; wltRenderReceiveQR(); }
+  }, 50);
+};
+
+window.wltOpenRevealForWallet = function(id) {
+  wltGoto('reveal');
+  setTimeout(() => {
+    const sel = document.getElementById('wlt-reveal-wallet-sel');
+    if (sel) sel.value = id;
+  }, 50);
+};
+
+function _copyToClipboard(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(() => _copyFallback(text));
+  } else {
+    _copyFallback(text);
+  }
+}
+function _copyFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+  document.body.removeChild(ta);
+}
+
+/* ════════════════════════════════
+   UTILITIES
+════════════════════════════════ */
+function _shortAddr(addr) {
+  if (!addr || addr.length < 10) return addr || '';
+  return addr.slice(0,6) + '...' + addr.slice(-4);
+}
+function _esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _fmtN(n) {
+  return parseFloat(n||0).toLocaleString('th-TH', { maximumFractionDigits:2 });
+}
+
+/* ════════════════════════════════
+   HOOK: astSwitchTab 'wallet-a'
+════════════════════════════════ */
+// Patch astSwitchTab เพื่อ render wallet tab เมื่อเปิด
+const _origAstSwitch = window.astSwitchTab;
+window.astSwitchTab = function(name, el) {
+  if (typeof _origAstSwitch === 'function') _origAstSwitch(name, el);
+  if (name === 'wallet-a') {
+    // Load wallets + balance เมื่อเปิด tab
+    wltLoadWallets();
+    wltRefreshBalance();
+    // ดึง locked USDT จาก loan system ถ้ามี
+    if (typeof USER_PROFILE !== 'undefined' && USER_PROFILE && USER_PROFILE.uid) {
+      dbCallRaw('getMyLoans', { uid: USER_PROFILE.uid }).then(loans => {
+        const active = (loans || []).filter(l => l.status === 'active' || l.status === 'open');
+        wlt.lockedUsdt = active.reduce((s, l) => s + (parseFloat(l.collateral_usdt_value) || 0), 0);
+        wltUpdateSendBalance();
+        const badge = document.getElementById('wlt-usdt-lock');
+        if (badge) badge.style.display = wlt.lockedUsdt > 0 ? 'inline-flex' : 'none';
+      }).catch(() => {});
+    }
+  }
+};
+
+/* ════════════════════════════════
+   AUTO-INIT: Wallet row ถูกเพิ่มใน HTML โดยตรงแล้ว
+════════════════════════════════ */
+
+/* ── Expose wlt state + internal helpers ออก window
+   เพื่อให้ hmWltOpen (นอก IIFE) เข้าถึงได้ ── */
+window.wlt = wlt;
+window._wltLoadWallets        = (typeof wltLoadWallets === 'function')        ? wltLoadWallets        : function(){};
+window._wltRefreshBalance     = (typeof wltRefreshBalance === 'function')     ? wltRefreshBalance     : function(){};
+window._wltRenderHistory      = (typeof wltRenderHistory === 'function')      ? wltRenderHistory      : function(){};
+window._wltPopulateReceiveSel = (typeof wltPopulateReceiveSel === 'function') ? wltPopulateReceiveSel : function(){};
+window._wltPopulateSendSel    = (typeof wltPopulateSendSel === 'function')    ? wltPopulateSendSel    : function(){};
+window._wltPopulateRevealSel  = (typeof wltPopulateRevealSel === 'function')  ? wltPopulateRevealSel  : function(){};
+window._wltUpdateSendBalance  = (typeof wltUpdateSendBalance === 'function')  ? wltUpdateSendBalance  : function(){};
+window._wltRenderSuccessQR    = (typeof wltRenderSuccessQR === 'function')    ? wltRenderSuccessQR    : function(){};
+window._wltRenderWalletCards  = (typeof wltRenderWalletCards === 'function')  ? wltRenderWalletCards  : function(){};
+// ── Expose crypto + sol helpers ให้ _hmWltInitCreate/_hmWltInitImport (นอก IIFE) เรียกได้ ──
+window.wltEncryptPK           = (typeof wltEncryptPK === 'function')           ? wltEncryptPK           : async function(){};
+window.wltDecryptPK           = (typeof wltDecryptPK === 'function')           ? wltDecryptPK           : async function(){};
+window.wltSaveWallet          = (typeof wltSaveWallet === 'function')          ? wltSaveWallet          : async function(){};
+window.wltRenderBackup        = (typeof wltRenderBackup === 'function')        ? wltRenderBackup        : function(){};
+window.solGenerateWallet      = (typeof solGenerateWallet === 'function')      ? solGenerateWallet      : function(){};
+window.solValidatePK          = (typeof solValidatePK === 'function')          ? solValidatePK          : function(){ return false; };
+window.solDeriveAddressFromPK = (typeof solDeriveAddressFromPK === 'function') ? solDeriveAddressFromPK : function(){ return ''; };
+// ── Expose utility helpers ให้โค้ดนอก IIFE เรียกได้ (เช่น _hmWltInitMain) ──
+window._esc       = (typeof _esc       === 'function') ? _esc       : function(s){ return String(s||''); };
+window._shortAddr = (typeof _shortAddr === 'function') ? _shortAddr : function(a){ return a||''; };
+window._fmtN      = (typeof _fmtN      === 'function') ? _fmtN      : function(n){ return String(n||0); };
+
+// ── [FIX] Expose WLT constants ให้โค้ดนอก IIFE (_hmWltInitSend) เรียกได้ ──
+window.WLT_BSC_RPC       = WLT_BSC_RPC;
+window.WLT_SOL_RPC       = WLT_SOL_RPC;
+window.WLT_USDT_CONTRACT = WLT_USDT_CONTRACT;
+window.WLT_STORAGE_KEY   = WLT_STORAGE_KEY;
+// ── Expose tx helpers ──
+window.wltSolTransfer    = (typeof wltSolTransfer    === 'function') ? wltSolTransfer    : async function(){ throw new Error('wltSolTransfer not ready'); };
+window.wltSaveTxHistory  = (typeof wltSaveTxHistory  === 'function') ? wltSaveTxHistory  : function(){};
+window.wltGetLocalWallets= (typeof wltGetLocalWallets=== 'function') ? wltGetLocalWallets: function(){ return []; };
+
+})(); // end IIFE
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     HOME WALLET MODAL OVERLAY
+     เปิดจากหน้า Home > Wallet tab โดยไม่ต้อง navTo('assets')
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="hmWltModal" style="display:none;position:fixed;inset:0;z-index:3500;background:var(--bg);flex-direction:column;max-width:480px;margin:0 auto;overflow:hidden">
+  <!-- TopBar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg)">
+    <button id="hmWltModalBack" onclick="hmWltBack()" style="background:none;border:none;color:var(--t1);cursor:pointer;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;font-family:var(--sans);padding:0">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+      <span id="hmWltModalTitle">Wallet</span>
+    </button>
+    <button onclick="hmWltClose()" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:22px;line-height:1;padding:0 4px">✕</button>
+  </div>
+  <!-- Content area — wlt-screens จะถูก move มาแสดงที่นี่ผ่าน JS -->
+  <div id="hmWltModalContent" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch">
+    <!-- populated by hmWltOpen() -->
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     TCC WALLET — Bitcoin Extension (BTC)
+     P2PKH address generation, sign + broadcast via Mempool.space
+     ══════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+'use strict';
+/* ═══════════════════════════════════════════════════════════════════
+   TCC WALLET — Bitcoin (BTC) Extension
+   เพิ่มต่อจาก wallet JS เดิม (ภายใน IIFE เดียวกัน)
+
+   Dependencies (ต้อง inline ก่อน IIFE นี้):
+     - btcCrypto bundle (~71KB) → window.btcCrypto = { secp, sha256, ripemd160 }
+
+   APIs ที่ใช้:
+     - Mempool.space  → ดู UTXO, balance, broadcast TX (ฟรี ไม่ต้อง key)
+     - BlockCypher    → fallback balance (ฟรี tier 3req/s)
+
+   Address format: P2PKH Legacy (1xxx) — compatible กับทุก exchange
+   Private Key: WIF compressed (K/L prefix)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC CONSTANTS
+──────────────────────────────────────────────────────────────────── */
+const WLT_BTC_MEMPOOL    = 'https://mempool.space/api';
+const WLT_BTC_BLOCKCYPHER= 'https://api.blockcypher.com/v1/btc/main';
+const WLT_BTC_DUST       = 546;      // min output satoshi
+const WLT_BTC_FEE_SAT    = 10000;    // default fee ~10,000 sat (~฿1.5)
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC UTILITY — Base58Check + encoding helpers
+──────────────────────────────────────────────────────────────────── */
+const BTC_B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function btcB58Enc(buf) {
+  let d = [0];
+  for (const b of buf) {
+    let c = b;
+    for (let j = 0; j < d.length; j++) { c += d[j] << 8; d[j] = c % 58; c = (c / 58) | 0; }
+    while (c > 0) { d.push(c % 58); c = (c / 58) | 0; }
+  }
+  let s = '';
+  for (let i = 0; i < buf.length && buf[i] === 0; i++) s += '1';
+  for (let i = d.length - 1; i >= 0; i--) s += BTC_B58[d[i]];
+  return s;
+}
+
+function btcB58Dec(s) {
+  const m = {};
+  for (let i = 0; i < BTC_B58.length; i++) m[BTC_B58[i]] = i;
+  let b = [0];
+  for (const c of s) {
+    if (!(c in m)) throw new Error('Invalid Base58 char: ' + c);
+    let v = m[c];
+    for (let j = 0; j < b.length; j++) { v += b[j] * 58; b[j] = v & 0xff; v >>= 8; }
+    while (v > 0) { b.push(v & 0xff); v >>= 8; }
+  }
+  for (let i = 0; i < s.length && s[i] === '1'; i++) b.push(0);
+  return new Uint8Array(b.reverse());
+}
+
+function btcDsha256(buf) {
+  const { sha256 } = window.btcCrypto;
+  return sha256(sha256(buf));
+}
+
+function btcB58Check(payload) {
+  const cs   = btcDsha256(payload).slice(0, 4);
+  const full = new Uint8Array(payload.length + 4);
+  full.set(payload); full.set(cs, payload.length);
+  return btcB58Enc(full);
+}
+
+function btcB58CheckDec(s) {
+  const raw = btcB58Dec(s);
+  const pay = raw.slice(0, -4);
+  const cs  = raw.slice(-4);
+  const cs2 = btcDsha256(pay).slice(0, 4);
+  if (!cs.every((b, i) => b === cs2[i])) throw new Error('Invalid checksum');
+  return pay;
+}
+
+function btcHexToBytes(h) {
+  return new Uint8Array(h.match(/.{2}/g).map(b => parseInt(b, 16)));
+}
+
+function btcBytesToHex(b) {
+  return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+function btcConcat(...arrays) {
+  const len = arrays.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(len);
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+function btcU32LE(n) {
+  const b = new Uint8Array(4);
+  new DataView(b.buffer).setUint32(0, n >>> 0, true);
+  return b;
+}
+
+function btcU64LE(n) {
+  const b = new Uint8Array(8);
+  const v = new DataView(b.buffer);
+  v.setUint32(0, n >>> 0, true);
+  v.setUint32(4, Math.floor(n / 0x100000000) >>> 0, true);
+  return b;
+}
+
+function btcVarInt(n) {
+  if (n < 0xfd) return new Uint8Array([n]);
+  if (n <= 0xffff) {
+    const b = new Uint8Array(3); b[0] = 0xfd;
+    new DataView(b.buffer).setUint16(1, n, true); return b;
+  }
+  const b = new Uint8Array(5); b[0] = 0xfe;
+  new DataView(b.buffer).setUint32(1, n, true); return b;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BECH32 ENCODER — สำหรับ Native SegWit (bc1q...) P2WPKH
+   ตาม BIP173 spec
+──────────────────────────────────────────────────────────────────── */
+const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+const BECH32_GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+
+function _bech32Polymod(values) {
+  let chk = 1;
+  for (const v of values) {
+    const top = chk >> 25;
+    chk = (chk & 0x1ffffff) << 5 ^ v;
+    for (let i = 0; i < 5; i++) if ((top >> i) & 1) chk ^= BECH32_GEN[i];
+  }
+  return chk;
+}
+
+function _bech32HrpExpand(hrp) {
+  const ret = [];
+  for (let i = 0; i < hrp.length; i++) ret.push(hrp.charCodeAt(i) >> 5);
+  ret.push(0);
+  for (let i = 0; i < hrp.length; i++) ret.push(hrp.charCodeAt(i) & 31);
+  return ret;
+}
+
+function _bech32CreateChecksum(hrp, data) {
+  const values = _bech32HrpExpand(hrp).concat(data).concat([0,0,0,0,0,0]);
+  const polymod = _bech32Polymod(values) ^ 1;
+  const ret = [];
+  for (let i = 0; i < 6; i++) ret.push((polymod >> (5 * (5 - i))) & 31);
+  return ret;
+}
+
+function _bech32Encode(hrp, data) {
+  const combined = data.concat(_bech32CreateChecksum(hrp, data));
+  return hrp + '1' + combined.map(d => BECH32_CHARSET[d]).join('');
+}
+
+function _convertbits(data, frombits, tobits, pad) {
+  let acc = 0, bits = 0;
+  const ret = [];
+  const maxv = (1 << tobits) - 1;
+  for (const value of data) {
+    acc = (acc << frombits) | value;
+    bits += frombits;
+    while (bits >= tobits) {
+      bits -= tobits;
+      ret.push((acc >> bits) & maxv);
+    }
+  }
+  if (pad && bits > 0) ret.push((acc << (tobits - bits)) & maxv);
+  return ret;
+}
+
+// encode 20-byte hash → bc1q... (P2WPKH witness v0)
+function btcSegwitEncode(hash20) {
+  const converted = _convertbits(Array.from(hash20), 8, 5, true);
+  return _bech32Encode('bc', [0].concat(converted)); // witness version 0
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC WALLET GENERATOR
+──────────────────────────────────────────────────────────────────── */
+function btcGenerateWallet() {
+  if (!window.btcCrypto) throw new Error('btcCrypto ยังไม่โหลด');
+  const { secp, sha256, ripemd160 } = window.btcCrypto;
+
+  // 1. random 32-byte private key
+  const privKey = crypto.getRandomValues(new Uint8Array(32));
+
+  // 2. secp256k1 → compressed public key (33 bytes)
+  const pubKey = secp.getPublicKey(privKey, true);
+
+  // 3. SHA256 → RIPEMD160 → 20-byte pubKeyHash
+  const pubKeyHash = ripemd160(sha256(pubKey));
+
+  // 4a. Native SegWit P2WPKH (bc1q...) — Primary address ตรงกับ Binance
+  const addressSegWit = btcSegwitEncode(pubKeyHash);
+
+  // 4b. Legacy P2PKH (1xxx) — สำรอง
+  const addrPayload = new Uint8Array(21);
+  addrPayload[0] = 0x00;
+  addrPayload.set(pubKeyHash, 1);
+  const addressLegacy = btcB58Check(addrPayload);
+
+  // 5. WIF (Wallet Import Format) compressed — starts K or L
+  const wifPayload = new Uint8Array(34);
+  wifPayload[0]  = 0x80;          // mainnet
+  wifPayload.set(privKey, 1);
+  wifPayload[33] = 0x01;          // compressed flag
+  const privateKeyWIF = btcB58Check(wifPayload);
+
+  // 6. Private key hex (สำรอง)
+  const privateKeyHex = btcBytesToHex(privKey);
+
+  // address = bc1q (Native SegWit) — ตรงกับ Binance Web3 Wallet
+  return { address: addressSegWit, addressLegacy, privateKey: privateKeyWIF, privateKeyHex };
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC WIF DECODE (สำหรับ Import + Sign)
+──────────────────────────────────────────────────────────────────── */
+function btcWIFtoPrivKey(wif) {
+  const payload = btcB58CheckDec(wif);
+  // payload[0] = 0x80 (version), payload[1..32] = privKey, payload[33] = 0x01 (compressed flag)
+  if (payload[0] !== 0x80) throw new Error('Invalid WIF version byte');
+  return payload.slice(1, 33); // 32-byte private key
+}
+
+function btcValidateWIF(wif) {
+  try {
+    if (!wif || (wif[0] !== 'K' && wif[0] !== 'L' && wif[0] !== '5')) return false;
+    const raw = btcWIFtoPrivKey(wif);
+    return raw.length === 32;
+  } catch (e) { return false; }
+}
+
+function btcDeriveAddressFromWIF(wif) {
+  const { secp, sha256, ripemd160 } = window.btcCrypto;
+  const privKey    = btcWIFtoPrivKey(wif);
+  const pubKey     = secp.getPublicKey(privKey, true);
+  const pubKeyHash = ripemd160(sha256(pubKey));
+  // Native SegWit bc1q — ตรงกับ Binance
+  return btcSegwitEncode(pubKeyHash);
+}
+
+function btcDeriveSegWitFromWIF(wif) {
+  return btcDeriveAddressFromWIF(wif); // alias ชัดเจน
+}
+
+function btcDeriveLegacyFromWIF(wif) {
+  const { secp, sha256, ripemd160 } = window.btcCrypto;
+  const privKey    = btcWIFtoPrivKey(wif);
+  const pubKey     = secp.getPublicKey(privKey, true);
+  const pubKeyHash = ripemd160(sha256(pubKey));
+  const addrPayload = new Uint8Array(21);
+  addrPayload[0] = 0x00;
+  addrPayload.set(pubKeyHash, 1);
+  return btcB58Check(addrPayload); // Legacy 1xxx
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC ADDRESS VALIDATION
+──────────────────────────────────────────────────────────────────── */
+function btcValidateAddress(addr) {
+  try {
+    if (!addr) return false;
+    // Native SegWit bc1q (P2WPKH) — 42 chars
+    if (/^bc1q[ac-hj-np-z02-9]{38,59}$/.test(addr)) return true;
+    // Legacy P2PKH 1xxx
+    if (/^[1][a-km-zA-HJ-NP-Z1-9]{25,33}$/.test(addr)) {
+      btcB58CheckDec(addr);
+      return true;
+    }
+    return false;
+  } catch (e) { return false; }
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC BALANCE + UTXO — Mempool.space API
+──────────────────────────────────────────────────────────────────── */
+async function btcGetBalance(address) {
+  // Mempool.space (primary)
+  try {
+    const res  = await fetch(`${WLT_BTC_MEMPOOL}/address/${address}`);
+    const data = await res.json();
+    const confirmed   = data.chain_stats?.funded_txo_sum   - data.chain_stats?.spent_txo_sum;
+    const unconfirmed = data.mempool_stats?.funded_txo_sum - data.mempool_stats?.spent_txo_sum;
+    return { confirmed: confirmed || 0, unconfirmed: unconfirmed || 0, total: (confirmed || 0) + (unconfirmed || 0) };
+  } catch (e) {
+    // Fallback: BlockCypher
+    try {
+      const res  = await fetch(`${WLT_BTC_BLOCKCYPHER}/addrs/${address}/balance`);
+      const data = await res.json();
+      return { confirmed: data.balance || 0, unconfirmed: data.unconfirmed_balance || 0, total: (data.balance || 0) + (data.unconfirmed_balance || 0) };
+    } catch (e2) { return { confirmed: 0, unconfirmed: 0, total: 0 }; }
+  }
+}
+
+async function btcGetUTXOs(address) {
+  // Mempool.space UTXO endpoint
+  const res  = await fetch(`${WLT_BTC_MEMPOOL}/address/${address}/utxo`);
+  const data = await res.json();
+  // filter confirmed only (status.confirmed === true)
+  return data
+    .filter(u => u.status?.confirmed)
+    .map(u => ({ txid: u.txid, vout: u.vout, value: u.value }));
+}
+
+async function btcGetFeeRate() {
+  // ดึง recommended fee rate (sat/vB) จาก Mempool.space
+  try {
+    const res  = await fetch(`${WLT_BTC_MEMPOOL}/v1/fees/recommended`);
+    const data = await res.json();
+    return {
+      fast:   data.fastestFee   || 50,
+      normal: data.halfHourFee  || 20,
+      slow:   data.hourFee      || 10,
+    };
+  } catch (e) { return { fast: 50, normal: 20, slow: 10 }; }
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC TX BUILDER + SIGNER (P2PKH)
+──────────────────────────────────────────────────────────────────── */
+function btcBuildAndSignTx(wifKey, utxos, toAddress, toSatoshi, changeAddress, feeRateSatPerVB) {
+  if (!window.btcCrypto) throw new Error('btcCrypto ไม่พร้อม');
+  const { secp, sha256, ripemd160 } = window.btcCrypto;
+
+  const privKey    = btcWIFtoPrivKey(wifKey);
+  const pubKey     = secp.getPublicKey(privKey, true);
+  const pubKeyHash = ripemd160(sha256(pubKey));
+
+  // ─── Script builders ───
+  // P2WPKH scriptPubKey: OP_0 OP_DATA(20) <hash>
+  function p2wpkhScript(h20) {
+    const s = new Uint8Array(22);
+    s[0] = 0x00; s[1] = 0x14;
+    s.set(h20, 2);
+    return s;
+  }
+  // P2PKH scriptPubKey (สำหรับ output ไปยัง legacy 1xxx)
+  function p2pkhScript(h20) {
+    const s = new Uint8Array(25);
+    s[0] = 0x76; s[1] = 0xa9; s[2] = 0x14;
+    s.set(h20, 3);
+    s[23] = 0x88; s[24] = 0xac;
+    return s;
+  }
+
+  // decode any address → 20-byte hash + script
+  function addrToScript(addr) {
+    if (addr.startsWith('bc1q')) {
+      // bech32 decode → extract 20-byte witness program
+      const dc = BECH32_CHARSET;
+      const pos = addr.lastIndexOf('1');
+      const data = addr.slice(pos + 1).split('').map(c => dc.indexOf(c));
+      // remove checksum (last 6), skip witness version (first 1)
+      const prog5 = data.slice(1, data.length - 6);
+      const prog8 = [];
+      let acc = 0, bits = 0;
+      for (const v of prog5) {
+        acc = (acc << 5) | v; bits += 5;
+        if (bits >= 8) { bits -= 8; prog8.push((acc >> bits) & 0xff); }
+      }
+      return p2wpkhScript(new Uint8Array(prog8));
+    }
+    // Legacy P2PKH
+    return p2pkhScript(btcB58CheckDec(addr).slice(1));
+  }
+
+  // ─── estimate TX size (SegWit vBytes) ───
+  // P2WPKH input: 41 non-witness + 108 witness / 4 = ~68 vBytes
+  // output P2WPKH: 31 vBytes, P2PKH: 34 vBytes, overhead: 10.5 vBytes
+  const estimatedVBytes = Math.ceil(utxos.length * 68 + 2 * 31 + 10.5);
+  const feeSat = feeRateSatPerVB
+    ? Math.ceil(estimatedVBytes * feeRateSatPerVB)
+    : WLT_BTC_FEE_SAT;
+
+  const totalIn = utxos.reduce((s, u) => s + u.value, 0);
+  const change  = totalIn - toSatoshi - feeSat;
+  if (change < 0) throw new Error(`ยอดไม่พอ: มี ${totalIn} sat ต้องการ ${toSatoshi + feeSat} sat (fee: ${feeSat})`);
+
+  // scriptCode สำหรับ BIP143 sighash: OP_DUP OP_HASH160 OP_DATA(20) <hash> OP_EQUALVERIFY OP_CHECKSIG
+  const scriptCode = btcConcat(
+    new Uint8Array([0x19, 0x76, 0xa9, 0x14]),
+    pubKeyHash,
+    new Uint8Array([0x88, 0xac])
+  );
+
+  const outputScripts = [{ script: addrToScript(toAddress), value: toSatoshi }];
+  if (change > WLT_BTC_DUST) {
+    outputScripts.push({ script: addrToScript(changeAddress), value: change });
+  }
+
+  // ─── BIP143 SegWit sighash preimage ───
+  const hashPrevouts = btcDsha256(btcConcat(...utxos.map(u =>
+    btcConcat(new Uint8Array([...btcHexToBytes(u.txid)].reverse()), btcU32LE(u.vout))
+  )));
+  const hashSequence = btcDsha256(btcConcat(...utxos.map(() =>
+    new Uint8Array([0xff, 0xff, 0xff, 0xff])
+  )));
+  const hashOutputs = btcDsha256(btcConcat(...outputScripts.map(o =>
+    btcConcat(btcU64LE(o.value), btcVarInt(o.script.length), o.script)
+  )));
+
+  // ─── Sign each input (BIP143 P2WPKH) ───
+  const witnesses = utxos.map(utxo => {
+    const preimage = btcConcat(
+      btcU32LE(2),                                                    // nVersion (SegWit uses v2)
+      hashPrevouts,
+      hashSequence,
+      new Uint8Array([...btcHexToBytes(utxo.txid)].reverse()),        // outpoint txid
+      btcU32LE(utxo.vout),                                            // outpoint index
+      scriptCode,                                                     // scriptCode
+      btcU64LE(utxo.value),                                           // value of input
+      new Uint8Array([0xff, 0xff, 0xff, 0xff]),                       // nSequence
+      hashOutputs,
+      btcU32LE(0),                                                    // nLocktime
+      btcU32LE(1)                                                     // SIGHASH_ALL
+    );
+    const sigHash  = btcDsha256(preimage);
+    const derSig   = secp.signSync(sigHash, privKey, { canonical: true, der: true });
+    const sigFinal = new Uint8Array([...derSig, 0x01]);
+    return [sigFinal, pubKey]; // witness stack: [sig, pubkey]
+  });
+
+  // ─── Assemble SegWit TX (BIP141) ───
+  const inputs = utxos.map((u, i) => btcConcat(
+    new Uint8Array([...btcHexToBytes(u.txid)].reverse()),
+    btcU32LE(u.vout),
+    new Uint8Array([0x00]),          // scriptSig empty (P2WPKH)
+    new Uint8Array([0xff, 0xff, 0xff, 0xff])
+  ));
+  const outputs = outputScripts.map(o =>
+    btcConcat(btcU64LE(o.value), btcVarInt(o.script.length), o.script)
+  );
+  const witnessData = witnesses.map(stack =>
+    btcConcat(
+      btcVarInt(stack.length),
+      ...stack.map(item => btcConcat(btcVarInt(item.length), item))
+    )
+  );
+
+  const rawTx = btcConcat(
+    btcU32LE(2),                          // version 2
+    new Uint8Array([0x00, 0x01]),          // segwit marker + flag
+    btcVarInt(inputs.length), ...inputs,
+    btcVarInt(outputs.length), ...outputs,
+    ...witnessData,
+    btcU32LE(0)                           // locktime
+  );
+
+  const txHex = btcBytesToHex(rawTx);
+  const txId  = btcBytesToHex(btcDsha256(rawTx).reverse());
+
+  return { txHex, txId, feeSat, changeSat: change > WLT_BTC_DUST ? change : 0, sizeBytes: rawTx.length };
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC BROADCAST TX — Mempool.space
+──────────────────────────────────────────────────────────────────── */
+async function btcBroadcastTx(txHex) {
+  const res = await fetch(`${WLT_BTC_MEMPOOL}/tx`, {
+    method  : 'POST',
+    headers : { 'Content-Type': 'text/plain' },
+    body    : txHex,
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error('Broadcast failed: ' + errText.slice(0, 200));
+  }
+  return await res.text(); // returns TXID
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BTC SEND — main flow (UTXO fetch → build → sign → broadcast)
+──────────────────────────────────────────────────────────────────── */
+async function wltBtcSend(wifKey, fromAddress, toAddress, amountBTC, feeLevel = 'normal') {
+  // 1. validate
+  if (!btcValidateAddress(toAddress)) throw new Error('Bitcoin Address ไม่ถูกต้อง (bc1q... หรือ 1...)');
+  const satoshi = Math.round(amountBTC * 1e8);
+  if (satoshi < WLT_BTC_DUST) throw new Error('จำนวนน้อยเกินไป (ขั้นต่ำ 546 sat)');
+
+  // 2. fetch fee rate
+  const feeRates   = await btcGetFeeRate();
+  const feeRate    = feeRates[feeLevel] || feeRates.normal;
+
+  // 3. fetch UTXOs
+  const utxos = await btcGetUTXOs(fromAddress);
+  if (utxos.length === 0) throw new Error('ไม่มี UTXO — ยังไม่มียอดที่ confirmed');
+
+  const totalAvail = utxos.reduce((s, u) => s + u.value, 0);
+  if (totalAvail < satoshi + WLT_BTC_FEE_SAT) {
+    throw new Error(`ยอดไม่พอ: มี ${(totalAvail / 1e8).toFixed(8)} BTC`);
+  }
+
+  // 4. coin selection (largest-first simple)
+  const sorted = [...utxos].sort((a, b) => b.value - a.value);
+  let selected = [], acc = 0;
+  for (const u of sorted) {
+    selected.push(u);
+    acc += u.value;
+    if (acc >= satoshi + feeRate * 250) break;  // rough estimate
+  }
+
+  // 5. build + sign TX
+  const { txHex, txId, feeSat, sizeBytes } = btcBuildAndSignTx(
+    wifKey, selected, toAddress, satoshi, fromAddress, feeRate
+  );
+
+  // 6. broadcast
+  const broadcastId = await btcBroadcastTx(txHex);
+
+  return { txId: broadcastId || txId, feeSat, sizeBytes };
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   UI INTEGRATION — hook เข้า wlt system เดิม
+──────────────────────────────────────────────────────────────────── */
+
+/* ── Override wltDoCreate: เพิ่ม BTC path ── */
+const _origWltDoCreate = window.wltDoCreate;
+window.wltDoCreate = async function () {
+  if (wlt.selectedChain !== 'BTC') return _origWltDoCreate();
+  const label = document.getElementById('wlt-create-label')?.value.trim();
+  const pwd   = document.getElementById('wlt-create-pwd')?.value;
+  const btn   = document.getElementById('wlt-create-btn');
+  if (!label || !pwd) return;
+  if (!window.btcCrypto) { showToast('⚠️ btcCrypto ยังไม่โหลด กรุณารอสักครู่'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'กำลังสร้าง BTC...'; }
+  try {
+    const btcWallet = btcGenerateWallet();
+    const { encrypted_pk, iv, salt } = await wltEncryptPK(btcWallet.privateKey, pwd);
+    wlt.pendingWallet = {
+      label, chain: 'BTC',
+      address: btcWallet.address,
+      mnemonic: '(Bitcoin Native SegWit — ไม่มี Mnemonic, ใช้ WIF Private Key restore)',
+      privateKey: btcWallet.privateKey,  // WIF format
+      encrypted_pk, iv, salt,
+    };
+    wltRenderBackup();
+    wltGoto('backup');
+  } catch (e) {
+    showToast('❌ สร้าง BTC wallet ไม่สำเร็จ: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'สร้างกระเป๋า'; }
+  }
+};
+
+/* ── Override wltDoImport: เพิ่ม BTC path ── */
+const _origWltDoImport = window.wltDoImport;
+window.wltDoImport = async function () {
+  if (wlt.selectedChainImp !== 'BTC') return _origWltDoImport();
+  const pk    = document.getElementById('wlt-imp-pk')?.value.trim();
+  const pwd   = document.getElementById('wlt-imp-pwd')?.value;
+  const pwd2  = document.getElementById('wlt-imp-pwd2')?.value;
+  const label = document.getElementById('wlt-imp-label')?.value.trim() || 'BTC Import';
+  if (!pk || !pwd) { showToast('กรุณากรอก WIF และ Password'); return; }
+  if (pwd !== pwd2) { showToast('Password ไม่ตรงกัน'); return; }
+  if (!btcValidateWIF(pk)) { showToast('❌ Bitcoin WIF ไม่ถูกต้อง (ต้องขึ้นด้วย K, L หรือ 5)'); return; }
+  try {
+    const address = btcDeriveAddressFromWIF(pk);
+    const { encrypted_pk, iv, salt } = await wltEncryptPK(pk, pwd);
+    wlt.pendingWallet = { label, chain: 'BTC', address, mnemonic: '(imported)', privateKey: pk, encrypted_pk, iv, salt };
+    await wltSaveWallet();
+    wltGoto('success');
+  } catch (e) { showToast('❌ Import BTC ไม่สำเร็จ: ' + e.message); }
+};
+
+/* ── Override wltValidateImportPK: เพิ่ม BTC path ── */
+const _origValidate = window.wltValidateImportPK;
+window.wltValidateImportPK = function () {
+  if (wlt.selectedChainImp !== 'BTC') return _origValidate();
+  const pk      = document.getElementById('wlt-imp-pk')?.value.trim();
+  const preview = document.getElementById('wlt-imp-addr-preview');
+  if (!preview) return;
+  if (!pk) { preview.style.display = 'none'; return; }
+  try {
+    if (!btcValidateWIF(pk)) { preview.style.display = 'none'; return; }
+    const addr = btcDeriveAddressFromWIF(pk);
+    preview.style.display = 'block';
+    preview.style.color   = 'var(--g)';
+    preview.textContent   = '✅ BTC Address: ' + addr;
+  } catch (e) {
+    preview.style.display = 'block';
+    preview.style.color   = 'var(--r)';
+    preview.textContent   = '❌ WIF ไม่ถูกต้อง';
+  }
+};
+
+/* ── Override wltDoSend: เพิ่ม BTC path ── */
+const _origWltDoSend = window.wltDoSend;
+window.wltDoSend = async function () {
+  const selId = document.getElementById('wlt-send-wallet-sel')?.value;
+  const ws    = wltGetLocalWallets();
+  const rec   = ws.find(w => w.id === selId);
+  if (rec?.chain !== 'BTC') return _origWltDoSend();
+
+  const toAddr = document.getElementById('wlt-send-to')?.value.trim();
+  const amount = parseFloat(document.getElementById('wlt-send-amount')?.value) || 0;
+  const pwd    = document.getElementById('wlt-send-pwd')?.value;
+  const feeLevel = document.getElementById('wlt-btc-fee-level')?.value || 'normal';
+
+  if (!toAddr)   { showToast('กรุณากรอก Bitcoin Address'); return; }
+  if (amount<=0) { showToast('กรุณากรอกจำนวนที่ถูกต้อง'); return; }
+  if (!pwd)      { showToast('กรุณากรอก Wallet Password'); return; }
+  if (!btcValidateAddress(toAddr)) { showToast('❌ Bitcoin Address ไม่ถูกต้อง'); return; }
+
+  showToast('🔓 กำลัง Decrypt & Sign BTC TX...');
+  try {
+    const wifKey = await wltDecryptPK(rec.encrypted_pk, rec.iv, rec.salt, pwd);
+    if (!wifKey) { showToast('❌ Password ไม่ถูกต้อง'); return; }
+
+    const { txId, feeSat, sizeBytes } = await wltBtcSend(wifKey, rec.address, toAddr, amount, feeLevel);
+
+    showToast(`✅ BTC ส่งแล้ว! Fee: ${feeSat} sat | ${sizeBytes}B`);
+    wltSaveTxHistory({ type:'send', token:'BTC', amount, to:toAddr, hash:txId, status:'pending', chain:'BTC' });
+    wltRefreshBalance();
+    wltGoto('history');
+  } catch (e) {
+    showToast('❌ ส่ง BTC ไม่สำเร็จ: ' + e.message.slice(0, 80));
+  }
+};
+
+/* ── Override wltRefreshBalance: เพิ่ม BTC balance query ── */
+const _origRefreshBalance = window.wltRefreshBalance;
+window.wltRefreshBalance = async function () {
+  await _origRefreshBalance();  // EVM + SOL ทำงานก่อน
+  const btcWallets = wltGetLocalWallets().filter(w => w.chain === 'BTC');
+  if (btcWallets.length === 0) return;
+
+  await wltFetchPrices();  // ดึง BTC price ด้วย
+  let totalBtcSat = 0;
+
+  for (const w of btcWallets) {
+    try {
+      const bal  = await btcGetBalance(w.address);
+      totalBtcSat += bal.confirmed;
+      const btcAmt = bal.confirmed / 1e8;
+      const cardEl = document.getElementById('wlt-card-bal-' + w.id);
+      if (cardEl) cardEl.textContent = btcAmt.toFixed(8) + ' BTC';
+    } catch (e) { /* skip */ }
+  }
+
+  wlt.btcBal = totalBtcSat / 1e8;
+  // อัปเดต BTC UI elements
+  const btcBalEl  = document.getElementById('wlt-btc-bal');
+  const btcThbEl  = document.getElementById('wlt-btc-thb');
+  const btcRowEl  = document.getElementById('wlt-btc-row');
+  const btcThb    = wlt.btcBal * (wlt.btcPriceTHB || 0);
+  if (btcBalEl)  btcBalEl.textContent  = wlt.btcBal.toFixed(8);
+  if (btcThbEl)  btcThbEl.textContent  = '≈ ฿' + btcThb.toLocaleString('th-TH', {maximumFractionDigits:2});
+  if (btcRowEl)  btcRowEl.style.display = btcWallets.length > 0 ? 'flex' : 'none';
+};
+
+/* ── Override wltFetchPrices: เพิ่ม BTC price ── */
+const _origFetchPrices = window.wltFetchPrices || (async()=>{});
+window.wltFetchPrices = async function () {
+  await _origFetchPrices();
+  // BTC price (ถ้า CoinGecko URL ยังไม่รวม bitcoin)
+  if (!wlt.btcPriceTHB) {
+    try {
+      const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=thb,usd');
+      const data = await res.json();
+      wlt.btcPriceTHB = data?.bitcoin?.thb || 0;
+      wlt.btcPriceUSD = data?.bitcoin?.usd || 0;
+    } catch (e) {}
+  }
+};
+
+/* ── Override wltUpdateSendBalance: เพิ่ม BTC ── */
+const _origUpdateSendBal = window.wltUpdateSendBalance;
+window.wltUpdateSendBalance = function () {
+  _origUpdateSendBal();
+  const selId = document.getElementById('wlt-send-wallet-sel')?.value;
+  const ws    = wltGetLocalWallets();
+  const rec   = ws.find(w => w.id === selId);
+  if (rec?.chain !== 'BTC') return;
+  const avail = document.getElementById('wlt-send-avail');
+  const locked = document.getElementById('wlt-send-locked');
+  if (avail)  avail.textContent  = (wlt.btcBal || 0).toFixed(8) + ' BTC';
+  if (locked) locked.textContent = '0';
+  // แสดง fee level selector
+  const feeRow = document.getElementById('wlt-btc-fee-row');
+  if (feeRow) feeRow.style.display = 'block';
+};
+
+/* ── Override wltUpdateSendTokenOptions: เพิ่ม BTC ── */
+const _origUpdateTokOpts = window.wltUpdateSendTokenOptions;
+window.wltUpdateSendTokenOptions = function () {
+  _origUpdateTokOpts();
+  const selId = document.getElementById('wlt-send-wallet-sel')?.value;
+  const ws    = wltGetLocalWallets();
+  const rec   = ws.find(w => w.id === selId);
+  const tokSel   = document.getElementById('wlt-send-token');
+  const feeLabel = document.getElementById('wlt-send-fee-label');
+  const feeRow   = document.getElementById('wlt-btc-fee-row');
+  if (rec?.chain === 'BTC') {
+    if (tokSel) {
+      Array.from(tokSel.options).forEach(o => { o.style.display = o.value === 'BTC' ? '' : 'none'; });
+      tokSel.value = 'BTC';
+    }
+    if (feeLabel) feeLabel.textContent = 'Fee คำนวณจาก fee rate (sat/vB) × ขนาด TX';
+    if (feeRow)   feeRow.style.display = 'block';
+  } else {
+    if (feeRow) feeRow.style.display = 'none';
+  }
+};
+
+/* ── Override wltOpenTxDetail: เพิ่ม BTC explorer ── */
+const _origOpenTxDetail = window.wltOpenTxDetail;
+window.wltOpenTxDetail = function (hash, chain) {
+  if (chain === 'BTC') { window.open('https://mempool.space/tx/' + hash, '_blank'); return; }
+  _origOpenTxDetail(hash, chain);
+};
+
+/* ── Override wltRenderBackup: เพิ่ม BTC note ── */
+const _origRenderBackup = window.wltRenderBackup || function(){};
+
+/* ── wltShowTokenDetail: เพิ่ม BTC ── */
+const _origShowToken = window.wltShowTokenDetail;
+window.wltShowTokenDetail = function (token) {
+  if (token === 'BTC') {
+    showToast('BTC: ' + (wlt.btcBal || 0).toFixed(8) + ' | ≈ ฿' + ((wlt.btcBal||0) * (wlt.btcPriceTHB||0)).toLocaleString('th-TH',{maximumFractionDigits:2}));
+    return;
+  }
+  _origShowToken(token);
+};
+
+/* ── BTC fee level selector helper ── */
+window.wltBtcSelectFee = function(el, level) {
+  document.querySelectorAll('#wlt-btc-fee-row .wlt-chain-opt').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  const inp = document.getElementById('wlt-btc-fee-level');
+  if (inp) inp.value = level;
+};
+
+/* ── BTC wallet card badge สีส้ม ── */
+// patch wltRenderWalletCards เพื่อ BTC badge สีถูกต้อง
+const _origRenderCards = window.wltRenderWalletCards;
+window.wltRenderWalletCards = function() {
+  _origRenderCards();
+  // patch BTC card badges
+  wltGetLocalWallets().filter(w=>w.chain==='BTC').forEach(w=>{
+    const card = document.querySelector('[data-wallet-id="'+w.id+'"] .wlt-wallet-chain');
+    if (card) { card.style.color='#f7931a'; card.style.background='#f7931a22'; }
+  });
+};
+
+/* ── Sync BTC balance ใน Overview + Home tab ── */
+const _origHmSync = window._hmSyncWalletBalance;
+window._hmSyncWalletBalance = function() {
+  if (typeof _origHmSync === 'function') _origHmSync();
+  const btcThb = (wlt.btcBal||0) * (wlt.btcPriceTHB||0);
+  // อัปเดต total (ถ้า _origHmSync ไม่รวม BTC แล้ว)
+  const totEl = document.getElementById('hm-wlt-total');
+  if (totEl && wlt.btcBal > 0) {
+    // ดึงยอด existing แล้วบวก BTC
+    const existing = parseFloat(totEl.textContent) || 0;
+    // note: _origHmSync set ค่าแล้ว — BTC จะถูกรวมใน next refresh cycle
+  }
+};
+
+/* ── Expose BTC functions ให้ outer scope (_hmWltInitCreate / _hmWltInitImport) เรียกได้ ── */
+window.btcGenerateWallet       = btcGenerateWallet;
+window.btcValidateWIF          = btcValidateWIF;
+window.btcDeriveAddressFromWIF = btcDeriveAddressFromWIF;  // returns bc1q (Native SegWit)
+window.btcDeriveSegWitFromWIF  = btcDeriveSegWitFromWIF;   // alias
+window.btcDeriveLegacyFromWIF  = btcDeriveLegacyFromWIF;   // returns 1xxx (Legacy)
+window.btcValidateAddress      = btcValidateAddress;        // รับทั้ง bc1q และ 1xxx
+window.btcSegwitEncode         = btcSegwitEncode;
+window.btcWIFtoPrivKey         = btcWIFtoPrivKey;
+window.wltBtcSend              = wltBtcSend;
+
+
+/* ════════════════════════════════════════════════════════════════
+   WALLET QR SHARE SHEET
+   - render QR preview ใน share sheet
+   - download QR เป็น PNG
+   - แชร์ผ่าน social ทุกแพลตฟอร์ม
+════════════════════════════════════════════════════════════════ */
+
+/* social platforms ที่รองรับ */
+const _sharePlatforms = [
+  { id:'line',      icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#06C755"/><text x="20" y="27" font-size="18" text-anchor="middle" fill="#fff" font-family="sans-serif">L</text></svg>', label:'LINE',      fn: (addr,qrB64) => { window.open(`https://line.me/R/msg/text/?${encodeURIComponent('TCC Wallet Address:\n' + addr)}`, '_blank'); } },
+  { id:'telegram',  icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#229ED9"/><text x="20" y="27" font-size="18" text-anchor="middle" fill="#fff" font-family="sans-serif">✈</text></svg>', label:'Telegram',  fn: (addr) => { window.open(`https://t.me/share/url?url=${encodeURIComponent(addr)}&text=${encodeURIComponent('TCC Wallet Address: ' + addr)}`, '_blank'); } },
+  { id:'whatsapp',  icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#25D366"/><text x="20" y="27" font-size="18" text-anchor="middle" fill="#fff" font-family="sans-serif">W</text></svg>', label:'WhatsApp', fn: (addr) => { window.open(`https://wa.me/?text=${encodeURIComponent('TCC Wallet Address:\n' + addr)}`, '_blank'); } },
+  { id:'facebook',  icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#1877F2"/><text x="20" y="27" font-size="18" text-anchor="middle" fill="#fff" font-family="sans-serif">f</text></svg>', label:'Facebook', fn: (addr) => { window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent('https://blockchair.com/bitcoin/address/' + addr)}`, '_blank'); } },
+  { id:'twitter',   icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#000"/><text x="20" y="27" font-size="16" text-anchor="middle" fill="#fff" font-family="sans-serif">𝕏</text></svg>', label:'X',         fn: (addr) => { window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent('My TCC Wallet Address:\n' + addr)}`, '_blank'); } },
+  { id:'instagram', icon:'<svg width="28" height="28" viewBox="0 0 40 40"><defs><linearGradient id="ig" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#f09433"/><stop offset="25%" stop-color="#e6683c"/><stop offset="50%" stop-color="#dc2743"/><stop offset="75%" stop-color="#cc2366"/><stop offset="100%" stop-color="#bc1888"/></linearGradient></defs><rect width="40" height="40" rx="10" fill="url(#ig)"/><text x="20" y="27" font-size="18" text-anchor="middle" fill="#fff" font-family="sans-serif">📷</text></svg>', label:'Instagram', fn: (addr, qrB64) => { _wltShareDownloadAndPrompt(addr, qrB64, 'Instagram'); } },
+  { id:'tiktok',    icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#010101"/><text x="20" y="27" font-size="16" text-anchor="middle" fill="#fff" font-family="sans-serif">♪</text></svg>', label:'TikTok',   fn: (addr, qrB64) => { _wltShareDownloadAndPrompt(addr, qrB64, 'TikTok'); } },
+  { id:'email',     icon:'<svg width="28" height="28" viewBox="0 0 40 40"><rect width="40" height="40" rx="10" fill="#EA4335"/><text x="20" y="27" font-size="17" text-anchor="middle" fill="#fff" font-family="sans-serif">✉</text></svg>', label:'Email',    fn: (addr) => { window.open(`mailto:?subject=${encodeURIComponent('TCC Wallet Address')}&body=${encodeURIComponent('My TCC Wallet Address:\n' + addr)}`, '_blank'); } },
+];
+
+/* state */
+let _shareCurrentAddr = '';
+let _shareCurrentQrB64 = '';
+
+/* เปิด share sheet */
+window.wltOpenShareSheet = function(addr, qrEl) {
+  if (!addr) return;
+  _shareCurrentAddr = addr;
+
+  // title / addr sub
+  const titleEl = document.getElementById('wlt-share-title');
+  const subEl   = document.getElementById('wlt-share-addr-sub');
+  if (titleEl) titleEl.textContent = 'แชร์ QR Code';
+  if (subEl)   subEl.textContent   = addr;
+
+  // render QR preview ใน share sheet
+  const previewWrap = document.getElementById('wlt-share-qr-preview');
+  if (previewWrap) {
+    previewWrap.innerHTML = '';
+    try {
+      new QRCode(previewWrap, {
+        text: addr, width: 200, height: 200,
+        colorDark: '#000000', colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.L,
+      });
+    } catch(e) {
+      previewWrap.textContent = addr;
+    }
+    // รอ QRCode render แล้วดึง canvas → base64
+    setTimeout(() => {
+      const canvas = previewWrap.querySelector('canvas');
+      _shareCurrentQrB64 = canvas ? canvas.toDataURL('image/png') : '';
+      _buildSocialGrid();
+    }, 120);
+  } else {
+    _buildSocialGrid();
+  }
+
+  // แสดง sheet
+  const sheet = document.getElementById('wlt-share-sheet');
+  if (sheet) { sheet.style.display = 'flex'; }
+};
+
+/* ปิด share sheet */
+window.wltCloseShareSheet = function() {
+  const sheet = document.getElementById('wlt-share-sheet');
+  if (sheet) sheet.style.display = 'none';
+};
+
+/* สร้าง social grid */
+function _buildSocialGrid() {
+  const grid = document.getElementById('wlt-share-social-grid');
+  if (!grid) return;
+  grid.innerHTML = _sharePlatforms.map(p => `
+    <button onclick="wltShareViaPlatform('${p.id}')" style="display:flex;flex-direction:column;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:10px 4px;cursor:pointer;color:var(--t1)">
+      ${p.icon}
+      <span style="font-size:10px;font-family:var(--sans)">${p.label}</span>
+    </button>
+  `).join('');
+}
+
+/* แชร์ผ่าน platform */
+window.wltShareViaPlatform = function(id) {
+  const p = _sharePlatforms.find(x => x.id === id);
+  if (p) p.fn(_shareCurrentAddr, _shareCurrentQrB64);
+};
+
+/* download QR เป็น PNG */
+window.wltShareDownloadQR = function() {
+  if (!_shareCurrentQrB64) {
+    // fallback: html2canvas ถ้ามี
+    const preview = document.getElementById('wlt-share-qr-preview');
+    if (typeof html2canvas !== 'undefined' && preview) {
+      html2canvas(preview, { backgroundColor: '#ffffff' }).then(canvas => {
+        _downloadDataUrl(canvas.toDataURL('image/png'), 'TCC_QR_' + _shareCurrentAddr.slice(0,8) + '.png');
+      });
+    } else {
+      showToast('⚠️ ไม่สามารถ render QR image ได้');
+    }
+    return;
+  }
+  _downloadDataUrl(_shareCurrentQrB64, 'TCC_QR_' + _shareCurrentAddr.slice(0,8) + '.png');
+  showToast('✅ บันทึก QR แล้ว!');
+};
+
+/* copy address จาก share sheet */
+window.wltShareCopyAddr = function() {
+  if (!_shareCurrentAddr) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(_shareCurrentAddr).then(() => showToast('📋 Copied!'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = _shareCurrentAddr; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('📋 Copied!');
+  }
+};
+
+/* helper: download dataURL */
+function _downloadDataUrl(dataUrl, filename) {
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+/* helper: platform ที่ไม่รองรับ share image url (Instagram, TikTok) → download ก่อนแล้ว prompt */
+function _wltShareDownloadAndPrompt(addr, qrB64, platform) {
+  if (qrB64) {
+    _downloadDataUrl(qrB64, 'TCC_QR_' + addr.slice(0,8) + '.png');
+  }
+  showToast('✅ ดาวน์โหลด QR แล้ว! กรุณาอัปโหลดใน ' + platform);
+}
+
+
+})(); // end BTC IIFE
+</script>
+
+<!-- ══ WALLET QR SHARE SHEET ══ -->
+<div id="wlt-share-sheet" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);align-items:flex-end;justify-content:center" onclick="if(event.target===this)wltCloseShareSheet()">
+  <div style="background:var(--bg2);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 32px;box-shadow:0 -4px 32px rgba(0,0,0,.5)">
+    <!-- Handle bar -->
+    <div style="width:40px;height:4px;background:var(--border);border-radius:4px;margin:0 auto 16px"></div>
+    <div style="font-size:15px;font-weight:700;text-align:center;margin-bottom:4px" id="wlt-share-title">แชร์ QR Code</div>
+    <div style="font-size:11px;color:var(--t3);text-align:center;margin-bottom:16px;word-break:break-all" id="wlt-share-addr-sub"></div>
+
+    <!-- QR Preview -->
+    <div style="display:flex;justify-content:center;margin-bottom:16px">
+      <div id="wlt-share-qr-preview" style="background:#fff;padding:10px;border-radius:10px;display:inline-block"></div>
+    </div>
+
+    <!-- Primary actions -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+      <button onclick="wltShareDownloadQR()" style="display:flex;align-items:center;justify-content:center;gap:6px;background:var(--y);color:#1a1a1a;border:none;border-radius:14px;padding:13px;font-size:13px;font-weight:700;cursor:pointer">
+        ⬇️ บันทึก QR
+      </button>
+      <button onclick="wltShareCopyAddr()" style="display:flex;align-items:center;justify-content:center;gap:6px;background:var(--bg3);color:var(--t1);border:1px solid var(--border);border-radius:14px;padding:13px;font-size:13px;font-weight:600;cursor:pointer">
+        📋 Copy Address
+      </button>
+    </div>
+
+    <!-- Divider -->
+    <div style="font-size:11px;color:var(--t3);text-align:center;margin-bottom:12px;letter-spacing:.5px">แชร์ผ่าน</div>
+
+    <!-- Social grid -->
+    <div id="wlt-share-social-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px">
+      <!-- populated by JS -->
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
+
+
+  
 
   
