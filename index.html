@@ -16898,10 +16898,39 @@ function _earnCountdownMs(c) {
   return endTime - Date.now();
 }
 function _earnCountdownExpired(c) {
+  // [FIX-COUNTDOWN-AUTORENEW] ถ้า matured และอยู่ใน auto-renew window → badge ไม่ expired
+  // (ยังมีเวลานับถอยหลังรอบใหม่อยู่ — แสดงสีปกติ ไม่ grey-out)
+  if (c.status === 'matured' && c.endTime > 0) {
+    const _sinceEnd = Date.now() - c.endTime;
+    if (_sinceEnd >= 24 * 3600000) {
+      const _newEndRemMs = (c.endTime + (c.planDays || 0) * 86400000) - Date.now();
+      if (_newEndRemMs > 0) return false; // รอบใหม่ยังนับถอยหลังอยู่ → ไม่ expired
+    }
+  }
   return c.status === 'matured' || _earnCountdownMs(c) <= 0;
 }
 function _earnCountdownText(c) {
-  if (c.status === 'matured') return tccT('earn_completed');
+  if (c.status === 'matured') {
+    // [FIX-COUNTDOWN-AUTORENEW] ถ้าอยู่ใน auto-renew window (≥24h หลังครบ) แสดงวันครบกำหนดรอบใหม่
+    // แทนที่จะแสดง "✅ ครบแล้ว" ซึ่งทำให้ user สับสนว่าสัญญาหมดแล้ว
+    const _sinceEnd = c.endTime > 0 ? (Date.now() - c.endTime) : 0;
+    if (c.endTime > 0 && _sinceEnd >= 24 * 3600000) {
+      const _newEnd = c.endTime + (c.planDays || 0) * 86400000;
+      const _newEndRemMs = _newEnd - Date.now();
+      if (_newEndRemMs > 0) {
+        const _totalSec = Math.floor(_newEndRemMs / 1000);
+        const _d = Math.floor(_totalSec / 86400);
+        const _h = Math.floor((_totalSec % 86400) / 3600);
+        const _m = Math.floor((_totalSec % 3600) / 60);
+        const _s = _totalSec % 60;
+        // [FIX-TICK-VISIBLE] เพิ่ม :SS ทุก format เพื่อให้เห็นว่าเดินทุกวินาที
+        return _d >= 1
+          ? `🔄 ${_d}d ${String(_h).padStart(2,'0')}:${String(_m).padStart(2,'0')}:${String(_s).padStart(2,'0')}`
+          : `🔄 ${String(_h).padStart(2,'0')}:${String(_m).padStart(2,'0')}:${String(_s).padStart(2,'0')}`;
+      }
+    }
+    return tccT('earn_completed');
+  }
   const ms = _earnCountdownMs(c);
   if (ms <= 0) return tccT('earn_completed');
   const totalSec = Math.floor(ms / 1000);
@@ -16909,10 +16938,10 @@ function _earnCountdownText(c) {
   const h = Math.floor((totalSec % 86400) / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  if (d >= 1) {
-    return `⏱ ${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-  }
-  return `⏱ ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  // [FIX-TICK-VISIBLE] เพิ่ม :SS ทุก format — เดิม d>=1 ใช้ HH:MM ดูเหมือนไม่เดินเพราะอัปเดตทุก 60s
+  return d >= 1
+    ? `⏱ ${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+    : `⏱ ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
 // ── Live tick: อัพเดท countdown badges ทุก 1 วินาที ──
@@ -17044,7 +17073,18 @@ function buildEarnCard(c) {
   const netProfit = (c.realizedPnl || 0) + liveUnrealizedPnl;
   const canClaim = netProfit > 0 && c.status !== 'frozen';
   // [v2.35] Redeem: matured + ไม่มี APT ค้าง
-  const isRedeemReady = c.status === 'matured' && netProfit <= 0;
+  // [FIX-AUTORENEW-REDEEM] ถ้า matured แต่ยังอยู่ใน 48h auto-renew window → block ปุ่ม Redeem
+  // เหตุ: GAS processMaturedAutoRenew() รัน trigger ทุก N ชั่วโมง ไม่ใช่ทันที
+  //   ช่วง 24h ≤ (now - end_time_ms) < 48h = GAS กำลังส่ง noti เตือน, ยังไม่ต่ออายุ
+  //   ช่วง (now - end_time_ms) ≥ 48h = GAS ต่ออายุแล้ว (status → active) หรือ user เลือก Redeem เอง
+  // ถ้า frontend แสดงปุ่ม Redeem ตลอดช่วง matured → user กด → GAS อาจ reject (status='active' แล้ว)
+  // → optimistic update ผิด (wallet บวก/status='closed') ต้อง rollback → UX สับสน
+  // guard: อนุญาต Redeem ได้ก็ต่อเมื่อ (now - endTime) < 24h (ยังอยู่ใน grace redeem window)
+  // หรือ endTime = 0 (ไม่มีข้อมูล → fallback อนุญาตเหมือนเดิม ป้องกัน legacy contracts)
+  const _nowMs = Date.now();
+  const _sinceEndMs = c.endTime > 0 ? (_nowMs - c.endTime) : 0;
+  const _inAutoRenewWindow = c.endTime > 0 && _sinceEndMs >= 24 * 3600000; // ≥ 24h = GAS อาจ renew แล้ว
+  const isRedeemReady = c.status === 'matured' && netProfit <= 0 && !_inAutoRenewWindow;
   // [v2.39] Frozen Redeem: frozen + end_time ผ่านแล้ว (ใช้โครงสร้างเดียวกับ matured)
   // [v6 FIX] เลื่อนขึ้นมาก่อน warnHtml block — เดิมอยู่หลัง if(isFrozenRedeemReady) ทำให้เกิด TDZ ReferenceError
   const isFrozenRedeemReady = c.status === 'frozen' && (c.endTime || 0) > 0 && Date.now() >= (c.endTime || 0);
@@ -17057,6 +17097,15 @@ function buildEarnCard(c) {
     } else {
       warnHtml = `<div class="earn-warn-bar frozen" style="display:flex">${tccT('warn_frozen_wait')}</div>`;
     }
+  } else if (c.status === 'matured' && _inAutoRenewWindow) {
+    // [FIX-AUTORENEW-REDEEM] แจ้ง user ว่าสัญญาอยู่ใน auto-renew window — ยังกด Redeem ไม่ได้
+    // แสดงวันครบกำหนดรอบใหม่ = endTime + planDays วัน
+    const _newEndMs = (c.endTime || 0) + (c.planDays || 0) * 86400000;
+    const _newEndDate = _newEndMs > 0 ? (() => {
+      const _d = new Date(_newEndMs);
+      return _d.getFullYear() + '-' + String(_d.getMonth()+1).padStart(2,'0') + '-' + String(_d.getDate()).padStart(2,'0');
+    })() : '';
+    warnHtml = `<div class="earn-warn-bar yellow" style="display:flex">🔄 ระบบต่ออายุสัญญาอัตโนมัติแล้ว${_newEndDate ? ` — สัญญาใหม่ครบกำหนด ${_newEndDate}` : ''} กดรับเงินต้นคืนได้เมื่อครบกำหนด</div>`;
   } else if (risk === 2) {
     warnHtml = `<div class="earn-warn-bar red" style="display:flex">${tccT('warn_critical_dd').replace('—%',dd.toFixed(1)+'%')}</div>`;
   } else if (risk === 1) {
@@ -29858,6 +29907,14 @@ async function loadOfflineState() {
                   isFixed:         !!_gasRow.isFixed,
                   // [NEW: TIER] sync contractTier จาก GAS (คำนวณครั้งเดียวตอนสร้าง ไม่เปลี่ยนภายหลัง แต่ sync ไว้เผื่อ)
                   contractTier:    _gasRow.contractTier || 'standard',
+                  // [FIX-COUNTDOWN-SYNC] sync startTime + endTime จาก GAS เสมอ
+                  // เดิม: ทั้งสองไม่อยู่ใน Object.assign → local ยังเก็บค่ารอบก่อน
+                  // ผล: _earnCountdownMs() คำนวณจาก startTime เก่า → endTime = อดีต
+                  //   → _earnCountdownExpired() คืน true ทันที → countdown แสดงแค่ ~3s แล้วหาย
+                  //   → แสดง "✅ ครบแล้ว" แม้สัญญาต่ออายุเป็น active รอบใหม่แล้ว
+                  // ใหม่: sync ทั้งคู่จาก GAS ทุกครั้ง → countdown ถูกต้องทันทีหลัง loadOfflineState()
+                  startTime:       _gasRow.startTime,
+                  endTime:         _gasRow.endTime,
                 });
                 delete gasMap[c.contractId];
               }
