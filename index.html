@@ -14224,14 +14224,24 @@ async function init() {
   // แก้โดยห่อแต่ละ step ด้วย try/catch แยกกัน เพื่อให้ step ที่เหลือ
   // (โดยเฉพาะ connectWS/initChartPanels/setInterval ทั้งหมด) ทำงานต่อได้เสมอ
   // ไม่ว่า step ก่อนหน้าจะสำเร็จหรือไม่
-  try { await fetchAllMids(); } catch(e) { console.error('[init] fetchAllMids failed:', e); }
-  // Load full perp coin list first so coinMap is ready before fetchCandles
-  try { await loadPerpList(); } catch(e) { console.error('[init] loadPerpList failed:', e); }
+  // [PERF-FIX v2.47] ทำ fetchAllMids + loadPerpList parallel กัน — ทั้งสองไม่ depend กัน
+  // ลดเวลาโหลดจาก 2 round-trips เหลือ 1 (ประหยัด ~1-2s โดยเฉพาะ GAS cold-start)
+  // ต้อง await ทั้งคู่ก่อน selectCoin เพราะ selectCoin ต้องการ coinMap จาก loadPerpList
+  // และ mids จาก fetchAllMids เพื่อ render ราคาถูกต้อง
+  await Promise.allSettled([
+    fetchAllMids().catch(e => console.error('[init] fetchAllMids failed:', e)),
+    loadPerpList().catch(e => console.error('[init] loadPerpList failed:', e)),
+  ]);
+
   // ── Restore coin ล่าสุด (เช่น GOLDUSDT) หลัง perp list โหลดเสร็จ ──
+  // selectCoin() เรียก fetchCandles + fetchFunding + fetch24h ภายในตัวเองอยู่แล้ว
+  // ถ้ามี lastCoin → ใช้ผลของ selectCoin() แทน fetch แยกด้านล่าง
+  let _selectCoinDone = false;
   try {
     const _lastCoin = (() => { try { return localStorage.getItem('tcc_lastCoin'); } catch(e) { return null; } })();
     if (_lastCoin) {
       await selectCoin(_lastCoin);
+      _selectCoinDone = true; // selectCoin เรียก fetchCandles+Funding+24h แล้ว ไม่ต้องเรียกซ้ำ
     } else {
       // ไม่มี lastCoin → sync levBtn ตาม BTC cycle default
       const _initCycle = _getActiveLevCycle();
@@ -14244,9 +14254,19 @@ async function init() {
   } catch(e) {
     console.error('[init] restore last coin / selectCoin failed:', e);
   }
-  try { await fetchCandles(S.tf); } catch(e) { console.error('[init] fetchCandles failed:', e); }
-  try { await fetchFunding(); } catch(e) { console.error('[init] fetchFunding failed:', e); }
-  try { await fetch24h(); } catch(e) { console.error('[init] fetch24h failed:', e); }
+
+  // ถ้าไม่มี lastCoin (หรือ selectCoin fail) → fetch candles ก่อน แล้วค่อย signal ready
+  // fetchFunding + fetch24h ยิง fire-and-forget parallel ไม่ block candles
+  if (!_selectCoinDone) {
+    // [CRITICAL PATH] candles ต้องมาก่อน — เป็นตัวที่ทำให้ chart วาดได้
+    try { await fetchCandles(S.tf); } catch(e) { console.error('[init] fetchCandles failed:', e); }
+    // [NON-CRITICAL] funding + 24h ยิง parallel background — ไม่ block chart render
+    fetchFunding().catch(e => console.error('[init] fetchFunding failed:', e));
+    fetch24h().catch(e => console.error('[init] fetch24h failed:', e));
+  }
+
+  // Signal ว่า candles พร้อมแล้ว — initSplash polling จะหยุดและ drawChart() ทันที
+  window._tccCandlesReady = true;
 
   // ── ตั้งแต่บรรทัดนี้ลงไป ต้องทำงานเสมอ ไม่ว่า fetch ด้านบนจะสำเร็จหรือไม่ ──
   try { connectWS(); } catch(e) { console.error('[init] connectWS failed:', e); }
@@ -14276,29 +14296,26 @@ async function init() {
   try { checkMatureContracts(); } catch(e) { console.error('[init] checkMatureContracts failed:', e); }
   // Init unified chart panels (drag resize + pan)
   setTimeout(initChartPanels, 100);
-  // [FIX black-screen-on-refresh v3] ปัญหาหน้าดำเกิดจาก race condition:
-  //   splash ปิดที่ 4200ms (fixed timer) → navTo('futures') → drawChart()
-  //   แต่ fetchCandles ยัง pending อยู่ → S.candles ว่าง → drawChart() return ทันที
-  //   → canvas ยังเปล่า/ดำ และไม่มีอะไร trigger redraw อีกครั้ง
+  // [FIX black-screen-on-refresh v4] drawChart หลัง init() เสร็จ
+  // v2.47: เรา await fetchCandles ก่อนถึงบรรทัดนี้เสมอ (ผ่าน selectCoin หรือ fetchCandles โดยตรง)
+  // และ window._tccCandlesReady = true ถูก set แล้วด้านบน
+  // ดังนั้นตอนนี้จะเป็น case (A) เสมอ (ยกเว้น fetchCandles fail + S.candles ว่างจริงๆ)
   //
-  // แก้: หลัง init() เสร็จ ตรวจ 2 กรณี:
-  //   (A) candles มีแล้ว → drawChart() ทันที (กรณีเน็ตเร็ว init เสร็จก่อน 4200ms)
-  //   (B) candles ยังว่าง (init ช้า / เน็ตช้า) → ตั้ง polling ทุก 300ms สูงสุด 20 ครั้ง (6 วินาที)
-  //       จนกว่า S.candles จะมีข้อมูล แล้วค่อย drawChart() + หยุด polling
-  //   ทั้ง 2 กรณีตรวจเพิ่มว่าอยู่หน้า futures ก่อน (ไม่รบกวนถ้า user เปลี่ยนหน้าไปแล้ว)
+  // กรณี (A): candles มีแล้ว → drawChart() ทันที
+  // กรณี (B): fetchCandles fail หรือ S.candles ยังว่าง → poll สำรอง 300ms × 20 รอบ (6s)
+  //           initSplash v4 มี poll ของตัวเองด้วย — ทั้งคู่ตรวจ currentPage ก่อน draw ไม่ชนกัน
   try {
     if (S.candles && S.candles.length) {
-      // (A) candles พร้อมแล้ว — redraw ทันที
-      drawChart();
+      // (A) candles พร้อมแล้ว — redraw ทันที (กรณีปกติ หลัง v2.47)
+      if (currentPage === 'futures' || currentPage === 'trade') drawChart();
     } else {
-      // (B) candles ยังไม่มา — poll จนกว่าจะมีหรือ timeout
+      // (B) fetchCandles fail / ยังว่าง (fallback poll) — initSplash poll ก็ทำงานขนานอยู่แล้ว
       let _chartRetryCount = 0;
       const _chartRetryMax = 20; // 20 × 300ms = 6s timeout
       const _chartRetryTimer = setInterval(() => {
         _chartRetryCount++;
         if (S.candles && S.candles.length) {
           clearInterval(_chartRetryTimer);
-          // วาดเฉพาะถ้ายังอยู่หน้า futures
           if (currentPage === 'futures' || currentPage === 'trade') {
             try { drawChart(); } catch(e) { console.error('[init] retry drawChart failed:', e); }
           }
@@ -16949,56 +16966,106 @@ function calcDaysPassed(c) {
 }
 
 // ── Earn Contract Countdown helpers ──
+
+// [v2.46] _earnEffectiveEndMs — คำนวณ endTime ที่ใช้จริงสำหรับ countdown
+// ลำดับความสำคัญ: c.endTime (จาก GAS sync) → c.startTime + planDays (fallback)
+// รองรับทั้ง: active รอบใหม่หลัง auto-renew, matured รอบเก่า, legacy contracts
+function _earnEffectiveEndMs(c) {
+  if (c.endTime > 0) return c.endTime;
+  if (c.startTime > 0 && c.planDays > 0) return c.startTime + c.planDays * 86400000;
+  return 0;
+}
+
 function _earnCountdownMs(c) {
   // เวลาที่เหลือจนครบกำหนด (ค่าลบ = หมดแล้ว)
-  const endTime = c.startTime + (c.planDays * 86400000);
-  return endTime - Date.now();
+  // [v2.46] ใช้ _earnEffectiveEndMs แทน startTime+planDays เพื่อรองรับ endTime ที่อัปเดตจาก GAS
+  const endMs = _earnEffectiveEndMs(c);
+  if (endMs > 0) return endMs - Date.now();
+  return (c.startTime + c.planDays * 86400000) - Date.now();
 }
+
 function _earnCountdownExpired(c) {
-  // [FIX-COUNTDOWN-AUTORENEW] ถ้า matured และอยู่ใน auto-renew window → badge ไม่ expired
-  // (ยังมีเวลานับถอยหลังรอบใหม่อยู่ — แสดงสีปกติ ไม่ grey-out)
-  if (c.status === 'matured' && c.endTime > 0) {
-    const _sinceEnd = Date.now() - c.endTime;
-    if (_sinceEnd >= 24 * 3600000) {
-      const _newEndRemMs = (c.endTime + (c.planDays || 0) * 86400000) - Date.now();
-      if (_newEndRemMs > 0) return false; // รอบใหม่ยังนับถอยหลังอยู่ → ไม่ expired
+  // active: expired ก็ต่อเมื่อ _earnCountdownMs <= 0 เท่านั้น
+  if (c.status === 'active') return _earnCountdownMs(c) <= 0;
+  // matured: ตรวจ auto-renew window ก่อนตัดสินว่า expired
+  // [FIX-COUNTDOWN-AUTORENEW] ถ้า matured + อยู่ใน auto-renew window → badge ไม่ expired
+  if (c.status === 'matured') {
+    // [v2.46 FIX-AUTORENEW-SYNC] กรณี A0: GAS เขียน end_time_ms ใหม่แล้ว (processMaturedAutoRenew)
+    // แต่ status ยังไม่ flush → ถ้า _gasEndMs ใหม่ > now → ยัง active อยู่ = ไม่ expired
+    const _ddMapE   = (window._contractDDMap || {})[c.contractId];
+    const _gasEndMs = _ddMapE && _ddMapE.end_time_ms > 0 ? _ddMapE.end_time_ms : 0;
+    if (_gasEndMs > 0 && _gasEndMs > (c.endTime || 0) && _gasEndMs > Date.now()) return false;
+    if (c.endTime > 0) {
+      const _sinceEnd = Date.now() - c.endTime;
+      if (_sinceEnd >= 24 * 3600000) {
+        const _newEndRemMs = (c.endTime + (c.planDays || 0) * 86400000) - Date.now();
+        if (_newEndRemMs > 0) return false;
+      }
     }
   }
   return c.status === 'matured' || _earnCountdownMs(c) <= 0;
 }
+
+// [v2.46] _fmtCountdownSec — แปลง seconds เป็น "Xd HH:MM:SS" หรือ "HH:MM:SS"
+function _fmtCountdownSec(totalSec, icon) {
+  const _d = Math.floor(totalSec / 86400);
+  const _h = Math.floor((totalSec % 86400) / 3600);
+  const _m = Math.floor((totalSec % 3600) / 60);
+  const _s = totalSec % 60;
+  const _hms = `${String(_h).padStart(2,'0')}:${String(_m).padStart(2,'0')}:${String(_s).padStart(2,'0')}`;
+  return _d >= 1 ? `${icon} ${_d}d ${_hms}` : `${icon} ${_hms}`;
+}
+
 function _earnCountdownText(c) {
+  // [v2.46 FIX-AUTORENEW-SYNC] ── active รอบใหม่ (หลัง sync จาก GAS) ──────────
+  // เมื่อ GAS ต่ออายุสัญญาแล้ว status='active' + endTime ใหม่ถูก sync กลับมา
+  // → countdown ทำงานปกติตาม endTime ใหม่ ไม่ต้องมี logic พิเศษ
+  if (c.status === 'active') {
+    const ms = _earnCountdownMs(c);
+    if (ms <= 0) return tccT('earn_completed');
+    return _fmtCountdownSec(Math.floor(ms / 1000), '⏱');
+  }
+
+  // ── matured: ตรวจ auto-renew window ──────────────────────────────────────────
   if (c.status === 'matured') {
-    // [FIX-COUNTDOWN-AUTORENEW] ถ้าอยู่ใน auto-renew window (≥24h หลังครบ) แสดงวันครบกำหนดรอบใหม่
-    // แทนที่จะแสดง "✅ ครบแล้ว" ซึ่งทำให้ user สับสนว่าสัญญาหมดแล้ว
-    const _sinceEnd = c.endTime > 0 ? (Date.now() - c.endTime) : 0;
+    // [FIX-COUNTDOWN-AUTORENEW v2.46] 3 กรณี:
+    // A0) GAS sync end_time_ms ใหม่แล้ว (processMaturedAutoRenew เขียน end_time_ms ใหม่แต่ status
+    //     ยังไม่ flush เป็น 'active') → ใช้ end_time_ms จาก _contractDDMap โดยตรง
+    //     สัญญาแบบ EC-7QJWTD: endTime เดิมผ่าน > 1 รอบ planDays → _newEnd ปลอมจะลบ
+    //     แต่ _ddMap.end_time_ms = end_time_ms จริงที่ GAS เขียนใหม่ → ใช้แทนได้
+    // A) ≥ 24h หลัง endTime เดิม → GAS น่าจะต่ออายุแล้ว แต่ sync ยังไม่ถึง
+    //    → ถ้าไม่มี _ddMap.end_time_ms ใหม่ → คาดเดา endTime รอบใหม่ = endTime เดิม + planDays
+    //    → แสดง countdown รอบใหม่ + icon 🔄
+    // B) < 24h หลัง endTime เดิม (หรือ endTime=0) → ยังไม่เข้า auto-renew window
+    //    → แสดง "✅ ครบแล้ว" ปกติ
+    const _ddMapE   = (window._contractDDMap || {})[c.contractId];
+    const _gasEndMs = _ddMapE && _ddMapE.end_time_ms > 0 ? _ddMapE.end_time_ms : 0;
+    // กรณี A0: GAS มี end_time_ms ใหม่ (> endTime local) แสดงว่า processMaturedAutoRenew
+    //          เขียน end_time_ms รอบใหม่แล้ว แต่ status ยังไม่ flush → ใช้ _gasEndMs โดยตรง
+    if (_gasEndMs > 0 && _gasEndMs > (c.endTime || 0)) {
+      const _remMsGas = _gasEndMs - Date.now();
+      if (_remMsGas > 0) {
+        return _fmtCountdownSec(Math.floor(_remMsGas / 1000), '🔄');
+      }
+    }
+    const _sinceEnd = c.endTime > 0 ? (Date.now() - c.endTime) : -1;
     if (c.endTime > 0 && _sinceEnd >= 24 * 3600000) {
+      // กรณี A: คาดเดา endTime รอบใหม่ = endTime เดิม + planDays
+      // (ถ้า sync สำเร็จแล้ว status จะเป็น 'active' ไม่ใช่ 'matured' อีกต่อไป
+      //  ดังนั้น block นี้ทำงานเฉพาะช่วง "รอ sync + ยังไม่มี _gasEndMs ใหม่" เท่านั้น)
       const _newEnd = c.endTime + (c.planDays || 0) * 86400000;
-      const _newEndRemMs = _newEnd - Date.now();
-      if (_newEndRemMs > 0) {
-        const _totalSec = Math.floor(_newEndRemMs / 1000);
-        const _d = Math.floor(_totalSec / 86400);
-        const _h = Math.floor((_totalSec % 86400) / 3600);
-        const _m = Math.floor((_totalSec % 3600) / 60);
-        const _s = _totalSec % 60;
-        // [FIX-TICK-VISIBLE] เพิ่ม :SS ทุก format เพื่อให้เห็นว่าเดินทุกวินาที
-        return _d >= 1
-          ? `🔄 ${_d}d ${String(_h).padStart(2,'0')}:${String(_m).padStart(2,'0')}:${String(_s).padStart(2,'0')}`
-          : `🔄 ${String(_h).padStart(2,'0')}:${String(_m).padStart(2,'0')}:${String(_s).padStart(2,'0')}`;
+      const _remMs  = _newEnd - Date.now();
+      if (_remMs > 0) {
+        return _fmtCountdownSec(Math.floor(_remMs / 1000), '🔄');
       }
     }
     return tccT('earn_completed');
   }
+
+  // fallback สำหรับ status อื่น (frozen ฯลฯ)
   const ms = _earnCountdownMs(c);
   if (ms <= 0) return tccT('earn_completed');
-  const totalSec = Math.floor(ms / 1000);
-  const d = Math.floor(totalSec / 86400);
-  const h = Math.floor((totalSec % 86400) / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  // [FIX-TICK-VISIBLE] เพิ่ม :SS ทุก format — เดิม d>=1 ใช้ HH:MM ดูเหมือนไม่เดินเพราะอัปเดตทุก 60s
-  return d >= 1
-    ? `⏱ ${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-    : `⏱ ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return _fmtCountdownSec(Math.floor(ms / 1000), '⏱');
 }
 
 // ── Live tick: อัพเดท countdown badges ทุก 1 วินาที ──
@@ -17156,8 +17223,15 @@ function buildEarnCard(c) {
     }
   } else if (c.status === 'matured' && _inAutoRenewWindow) {
     // [FIX-AUTORENEW-REDEEM] แจ้ง user ว่าสัญญาอยู่ใน auto-renew window — ยังกด Redeem ไม่ได้
-    // แสดงวันครบกำหนดรอบใหม่ = endTime + planDays วัน
-    const _newEndMs = (c.endTime || 0) + (c.planDays || 0) * 86400000;
+    // [v2.46 FIX] ใช้ end_time_ms จาก _contractDDMap (GAS ล่าสุด) ถ้ามีค่าใหม่ > endTime local
+    // ป้องกันวันครบกำหนดที่แสดงผิด (เช่น EC-7QJWTD ที่ endTime เก่าคำนวณ +planDays แล้วยังผ่านไปแล้ว)
+    const _warnDdE    = (window._contractDDMap || {})[c.contractId];
+    const _warnGasEnd = _warnDdE && _warnDdE.end_time_ms > 0 ? _warnDdE.end_time_ms : 0;
+    // ถ้า GAS end_time_ms ใหม่ > endTime local → ใช้ค่าจาก GAS โดยตรง (แม่นยำที่สุด)
+    // ถ้าไม่มี → คาดเดา endTime + planDays (เหมือนเดิม)
+    const _newEndMs = (_warnGasEnd > 0 && _warnGasEnd > (c.endTime || 0))
+      ? _warnGasEnd
+      : (c.endTime || 0) + (c.planDays || 0) * 86400000;
     const _newEndDate = _newEndMs > 0 ? (() => {
       const _d = new Date(_newEndMs);
       return _d.getFullYear() + '-' + String(_d.getMonth()+1).padStart(2,'0') + '-' + String(_d.getDate()).padStart(2,'0');
@@ -20785,24 +20859,45 @@ function tfShowCoinDDHint() {
     if (window._dashboardReady && typeof updateOverviewBalances === 'function') {
       try { updateOverviewBalances(); } catch(e) {}
     }
-    // [FIX black-screen-on-refresh v3] Safety net ฝั่ง splash:
-    // navTo('futures') เรียก drawChart() ผ่าน rAF แต่ถ้า S.candles ยังว่าง (init() ยังรัน fetch อยู่)
-    // → drawChart() return ทันที → canvas ดำ ไม่มีอะไร trigger redraw
-    // แก้: ถ้า _goPage === 'futures' ให้ตั้ง polling 300ms รอ candles แล้ว redraw
-    // (init() มี retry ของตัวเองด้วย — ทั้งคู่ตรวจ currentPage ก่อน draw เพื่อไม่ชนกัน)
+    // [FIX black-screen-on-refresh v4 — event-driven]
+    // ปัญหาเดิม (v3): polling 300ms × 30 = 9s max รอ S.candles ซึ่งอาจมาช้า/ไม่มาเลย
+    // ปัญหา v3 เพิ่มเติม: ถ้า candles มาก่อน 4200ms (เน็ตเร็ว) → v3 ไม่รู้ เพราะ polling เริ่มหลัง 4200ms
+    //
+    // แก้ใหม่ด้วย 2 กลไกร่วมกัน:
+    // (A) candles พร้อมก่อน splash หาย (window._tccCandlesReady=true ก่อน 4200ms)
+    //     → drawChart() ทันทีที่ splash หาย ไม่ต้องรอ polling เลย
+    // (B) candles ยังไม่พร้อม → poll เหมือนเดิม แต่ตรวจ _tccCandlesReady flag แทน S.candles โดยตรง
+    //     เพราะ init() set flag นี้หลัง fetchCandles await เสร็จทุกกรณี (success หรือ error)
+    //     ป้องกัน poll วนไม่หยุดถ้า fetchCandles fail แล้ว S.candles ว่างตลอด
+    //
+    // init() มี retry ของตัวเองด้วย — ทั้งคู่ตรวจ currentPage ก่อน draw เพื่อไม่ชนกัน
     if (_goPage === 'futures') {
-      let _splashChartRetry = 0;
-      const _splashChartTimer = setInterval(() => {
-        _splashChartRetry++;
-        const _hasCandles = typeof S !== 'undefined' && S.candles && S.candles.length;
-        const _onFutures  = typeof currentPage !== 'undefined' && currentPage === 'futures';
-        if (_hasCandles && _onFutures) {
-          clearInterval(_splashChartTimer);
-          try { if (typeof drawChart === 'function') drawChart(); } catch(e) {}
-        } else if (_splashChartRetry >= 30) { // 30 × 300ms = 9s max
-          clearInterval(_splashChartTimer);
-        }
-      }, 300);
+      const _tryDrawChart = () => {
+        const _onFutures = typeof currentPage !== 'undefined' && (currentPage === 'futures' || currentPage === 'trade');
+        if (!_onFutures) return; // user เปลี่ยนหน้าแล้ว ไม่ต้อง draw
+        try { if (typeof drawChart === 'function') drawChart(); } catch(e) {}
+      };
+      // (A) candles มาก่อน splash — drawChart ทันทีที่ splash หาย
+      if (window._tccCandlesReady || (typeof S !== 'undefined' && S.candles && S.candles.length)) {
+        _tryDrawChart();
+      } else {
+        // (B) candles ยังไม่มา — poll รอ flag จาก init() แทนที่จะตรวจ S.candles โดยตรง
+        // เพราะ init() set _tccCandlesReady แม้ fetchCandles fail (ป้องกัน infinite poll)
+        // timeout สูงสุด 12s (40 × 300ms) ครอบ GAS cold-start worst case
+        let _splashChartRetry = 0;
+        const _splashChartTimer = setInterval(() => {
+          _splashChartRetry++;
+          const _candlesReady = window._tccCandlesReady
+            || (typeof S !== 'undefined' && S.candles && S.candles.length);
+          if (_candlesReady) {
+            clearInterval(_splashChartTimer);
+            _tryDrawChart();
+          } else if (_splashChartRetry >= 40) { // 40 × 300ms = 12s max
+            clearInterval(_splashChartTimer);
+            console.warn('[initSplash] chart poll timeout 12s — candles still not ready');
+          }
+        }, 300);
+      }
     }
   }, 4200);
 })();
@@ -29866,6 +29961,11 @@ async function loadOfflineState() {
         isFixed:         String(r.contract_mode || '').trim().toLowerCase() === 'fixed',
         // [NEW: TIER] 'standard' | 'vip'
         contractTier:    (String(r.contract_tier || '').toLowerCase() === 'vip') ? 'vip' : 'standard',
+        // [v2.46] APT Tracking — แยก APT ออกจาก Trade Claim เพื่อ Contract Summary
+        aptTotalClaimed: parseFloat(r.apt_total_claimed) || 0,
+        // NOTE: status ด้านบนมาจาก Sheet โดยตรง — อาจยังเป็น 'matured' แม้ GAS ต่ออายุแล้ว
+        // เพราะ Sheet write latency หรือ getContractStatus (step 1b) ยังไม่ได้ sync มา
+        // → Step 2 Object.assign guard จะตรวจ _contractDDMap และไม่ทับค่า 'active' ที่ sync มาจาก step 1b
       };
     }
 
@@ -29987,7 +30087,20 @@ async function loadOfflineState() {
       const _localNonTerminalCids = (typeof earnContracts !== 'undefined' && Array.isArray(earnContracts))
         ? earnContracts.filter(c => c.status !== 'matured' && c.status !== 'closed').map(c => c.contractId).filter(Boolean)
         : [];
-      const _activeCids = [...new Set([..._posCids, ..._localNonTerminalCids])];
+      // [v2.46 FIX-AUTORENEW-SYNC] เพิ่ม matured contracts ที่ผ่าน endTime ไปแล้ว ≥ 24h
+      // เข้า _activeCids ด้วย เพื่อให้ getContractStatus ตรวจสอบว่า GAS ต่ออายุไปแล้วหรือยัง
+      // (เดิม matured ถูก filter ออกทั้งหมด → ไม่รู้ว่า status เปลี่ยนเป็น active แล้ว)
+      const _nowForSync = Date.now();
+      const _maturedNeedSyncCids = (typeof earnContracts !== 'undefined' && Array.isArray(earnContracts))
+        ? earnContracts.filter(c => {
+            if (c.status !== 'matured') return false;
+            const _since = c.endTime > 0 ? (_nowForSync - c.endTime) : 0;
+            // sync ถ้า: ยังไม่มี endTime (legacy) หรือ ผ่าน endTime ไปแล้ว > 0h (ครบกำหนดแล้วทุกตัว)
+            // ขอบเขต: สัญญา matured ทุกตัวที่ endTime ผ่านแล้ว ≤ 72h (เกินนั้น closed ไปแล้วหรือ legacy)
+            return c.endTime === 0 || (_since >= 0 && _since <= 72 * 3600000);
+          }).map(c => c.contractId).filter(Boolean)
+        : [];
+      const _activeCids = [...new Set([..._posCids, ..._localNonTerminalCids, ..._maturedNeedSyncCids])];
       if (_activeCids.length > 0) {
         // ดึง getContractStatus แบบ parallel (Promise.allSettled — ไม่ fail ถ้าบางตัว error)
         const _csResults = await Promise.allSettled(
@@ -30019,12 +30132,36 @@ async function loadOfflineState() {
             isMarginBlocked:       !!_st.isMarginBlocked,
             trading_realized_loss: _st.trading_realized_loss,
             apt_yield_accrued:     _st.apt_yield_accrued,
+            // [v2.46] APT Summary + timing fields สำหรับ Contract Summary / auto-renew sync
+            apt_total_claimed:     parseFloat(_st.apt_total_claimed)  || 0,
+            apt_total_expected:    parseFloat(_st.apt_total_expected) || 0,
+            status:                _st.status        || '',
+            start_time_ms:         _st.start_time_ms || 0,
+            end_time_ms:           _st.end_time_ms   || 0,
           };
-          // sync _gasDrawdown กลับเข้า earnContracts local ด้วย
+          // sync _gasDrawdown + [v2.46] auto-renew status กลับเข้า earnContracts local
           if (typeof earnContracts !== 'undefined') {
             const _lc = earnContracts.find(x => x.contractId === _cid);
-            if (_lc && _st.drawdown_pct !== undefined) {
-              _lc._gasDrawdown = parseFloat(_st.drawdown_pct) || 0;
+            if (_lc) {
+              if (_st.drawdown_pct !== undefined) {
+                _lc._gasDrawdown = parseFloat(_st.drawdown_pct) || 0;
+              }
+              // [v2.46 FIX-AUTORENEW-SYNC] ถ้า GAS ยืนยัน status='active' แต่ local ยัง 'matured'
+              // → อัปเดต status + startTime + endTime ทันที ไม่รอ loadOfflineState รอบถัดไป
+              // _st.status มาจาก getContractStatus ซึ่ง GAS อ่านตรงจากชีตทุกครั้ง
+              if (_lc.status === 'matured' && _st.status === 'active') {
+                const _prevStatus = _lc.status;
+                _lc.status    = 'active';
+                // start_time_ms และ end_time_ms ใหม่ (GAS เขียนตอน processMaturedAutoRenew)
+                if (_st.start_time_ms > 0) _lc.startTime = _st.start_time_ms;
+                if (_st.end_time_ms   > 0) _lc.endTime   = _st.end_time_ms;
+                console.warn('[AutoRenew-Sync] ' + _cid + ' synced: ' +
+                             _prevStatus + ' → active' +
+                             ' startTime=' + new Date(_lc.startTime).toISOString().slice(0,16) +
+                             ' endTime='   + new Date(_lc.endTime).toISOString().slice(0,16));
+                // re-render card ทันทีเพื่อ badge + countdown ถูกต้องโดยไม่รอ renderEarnContracts รอบถัดไป
+                if (typeof renderEarnContracts === 'function') renderEarnContracts();
+              }
             }
           }
         });
@@ -30081,12 +30218,32 @@ async function loadOfflineState() {
                 const _esUntil = window._pendingEarnSync ? (window._pendingEarnSync[c.contractId] || 0) : 0;
                 const _holdEarnSync = Date.now() < _esUntil;
                 if (!_holdEarnSync && window._pendingEarnSync) delete window._pendingEarnSync[c.contractId];
+                // [v2.46 FIX-AUTORENEW-OVERWRITE] Guard: อย่าให้ getEarnContracts (Step 2) ทับ
+                // status='active' ที่ getContractStatus (Step 1b) เพิ่ง sync มา
+                // เพราะทั้งสองรัน parallel และ getEarnContracts อ่านจาก Sheet โดยตรง
+                // ซึ่งอาจยังเป็น 'matured' ถ้า processMaturedAutoRenew รันช้ากว่า query นี้
+                // กฎ: ถ้า local ถูก sync เป็น 'active' จาก Step 1b แล้ว (step1bSyncedActive)
+                //      และ _gasRow (getEarnContracts) ยังบอกว่า 'matured'
+                //      → ใช้ status ที่ sync จาก Step 1b ต่อไป อย่าให้ถูกทับ
+                const _ddMapEntry    = (window._contractDDMap || {})[earnContracts[i].contractId];
+                const _step1bSaysActive = _ddMapEntry && _ddMapEntry.status === 'active';
+                const _gasRowMatured    = _gasRow.status === 'matured';
+                // ถ้า Step 1b บอก active แต่ getEarnContracts บอก matured → คง active ไว้
+                const _resolvedStatus = _holdFrozen ? 'frozen'
+                  : (_step1bSaysActive && _gasRowMatured) ? 'active'
+                  : _gasRow.status;
+                // ถ้า active จาก Step 1b → ใช้ startTime/endTime จาก _contractDDMap
+                const _resolvedStartTime = (_step1bSaysActive && _gasRowMatured && _ddMapEntry.start_time_ms > 0)
+                  ? _ddMapEntry.start_time_ms : _gasRow.startTime;
+                const _resolvedEndTime   = (_step1bSaysActive && _gasRowMatured && _ddMapEntry.end_time_ms > 0)
+                  ? _ddMapEntry.end_time_ms   : _gasRow.endTime;
+
                 Object.assign(earnContracts[i], {
                   currentBalance:  _holdFrozen ? earnContracts[i].currentBalance
                                     : (_holdEarnSync ? earnContracts[i].currentBalance : _gasRow.currentBalance),
                   frozenBalance:   _holdFrozen ? earnContracts[i].frozenBalance
                                     : (_holdEarnSync ? earnContracts[i].frozenBalance : _gasRow.frozenBalance),
-                  status:          _holdFrozen ? 'frozen' : _gasRow.status,
+                  status:          _resolvedStatus,
                   realizedPnl:     _holdEarnSync ? earnContracts[i].realizedPnl : _gasRow.realizedPnl,
                   totalClaimed:    _holdEarnSync ? earnContracts[i].totalClaimed : _gasRow.totalClaimed,
                   lastYieldTimeMs: _gasRow.lastYieldTimeMs,
@@ -30097,16 +30254,12 @@ async function loadOfflineState() {
                   // [v2.34 FIX-Q] sync contract_mode + isFixed — admin อาจสลับโหมดโดยไม่ reload
                   contract_mode:   _gasRow.contract_mode || 'trade',
                   isFixed:         !!_gasRow.isFixed,
-                  // [NEW: TIER] sync contractTier จาก GAS (คำนวณครั้งเดียวตอนสร้าง ไม่เปลี่ยนภายหลัง แต่ sync ไว้เผื่อ)
+                  // [NEW: TIER] sync contractTier จาก GAS
                   contractTier:    _gasRow.contractTier || 'standard',
-                  // [FIX-COUNTDOWN-SYNC] sync startTime + endTime จาก GAS เสมอ
-                  // เดิม: ทั้งสองไม่อยู่ใน Object.assign → local ยังเก็บค่ารอบก่อน
-                  // ผล: _earnCountdownMs() คำนวณจาก startTime เก่า → endTime = อดีต
-                  //   → _earnCountdownExpired() คืน true ทันที → countdown แสดงแค่ ~3s แล้วหาย
-                  //   → แสดง "✅ ครบแล้ว" แม้สัญญาต่ออายุเป็น active รอบใหม่แล้ว
-                  // ใหม่: sync ทั้งคู่จาก GAS ทุกครั้ง → countdown ถูกต้องทันทีหลัง loadOfflineState()
-                  startTime:       _gasRow.startTime,
-                  endTime:         _gasRow.endTime,
+                  // [FIX-COUNTDOWN-SYNC] sync startTime + endTime — ใช้ resolved values
+                  // เพื่อรองรับ auto-renew: ถ้า Step 1b sync มาว่า active แล้ว ใช้ timing ใหม่
+                  startTime:       _resolvedStartTime,
+                  endTime:         _resolvedEndTime,
                 });
                 delete gasMap[c.contractId];
               }
@@ -30396,18 +30549,44 @@ document.addEventListener('DOMContentLoaded', () => {
   //   อ่าน uid จาก session ตรงๆอยู่แล้ว ไม่ต้องพึ่ง USER_PROFILE.uid ให้พร้อมก่อน และมี
   //   retry ในตัวถ้า session ยังไม่พร้อมจริงๆ (loadOfflineState retry เอง 3s)
   //   → เรียกได้ทันที ไม่ต้องเดารอ 5 วิ
-  syncOfflineEngine();           // ส่ง local state → GAS
-  loadOfflineState();            // ดึง GAS state กลับ (sync ทั้ง positions/contracts/orders)
+  // [PERF-FIX v2.47] syncOfflineEngine + loadOfflineState + loadDashboard รัน parallel จริง
+  //
+  // โครงสร้างเดิม (v5): loadOfflineState() fire-and-forget แต่ loadDashboard() อยู่ใน async IIFE
+  // ที่รอ resolve ก่อน → ดูเหมือน parallel แต่ loadDashboard ยัง sequential ต่อจาก call stack เดิม
+  //
+  // โครงสร้างใหม่ (v2.47):
+  // - syncOfflineEngine() — fire-and-forget (write-only, ไม่ต้องรอ)
+  // - loadOfflineState() + loadDashboard() — ยิง parallel จริง ด้วย Promise.allSettled
+  // - dashboard เสร็จก่อน → render balance/earnContracts ทันที ไม่รอ offline state ทั้งก้อน
+  // - offline state เสร็จก่อน → positions/orders พร้อมทันทีเช่นกัน
+  // - ทั้งคู่ต่างมี guard กัน race condition ภายในฟังก์ชันตัวเองอยู่แล้ว (_pendingEarnSync,
+  //   _pendingFreeze, _holdFrozen, Pending-Earn-Sync Guard ฯลฯ)
+  syncOfflineEngine(); // ส่ง local state → GAS (fire-and-forget)
 
   (async () => {
-    try {
-      const dash = await loadDashboard();
-      console.warn('[DB] Dashboard ready | Queue:', QUEUE._q.length, 'pending');
-      // [v7 FIX] render earnContracts หลัง dashboard โหลดเสร็จ (กรณี loadOfflineState ยังทำงาน)
-      if (typeof renderEarnContracts === 'function') renderEarnContracts();
-    } catch (e) {
-      console.warn('[DB] Dashboard error (offline?)', e.message);
+    const [_dashSettled, _offlineSettled] = await Promise.allSettled([
+      // loadDashboard — ดึง balance/profile/earnContracts/tradeHistory จาก GAS
+      (async () => {
+        try {
+          const dash = await loadDashboard();
+          console.warn('[DB] Dashboard ready | Queue:', QUEUE._q.length, 'pending');
+          // render earnContracts ทันทีที่ dashboard เสร็จ ไม่รอ loadOfflineState ทั้งก้อน
+          if (typeof renderEarnContracts === 'function') renderEarnContracts();
+          return dash;
+        } catch (e) {
+          console.warn('[DB] Dashboard error (offline?)', e.message);
+        }
+      })(),
+      // loadOfflineState — ดึง positions/openOrders/earnContracts/liqPriceMap จาก GAS
+      loadOfflineState().catch(e => console.warn('[DB] loadOfflineState error:', e.message)),
+    ]);
+    // หลังทั้งคู่เสร็จ: render รอบสุดท้ายเพื่อให้ earnContracts แสดงข้อมูล merge ที่สมบูรณ์
+    // (กรณี loadOfflineState มาทีหลัง loadDashboard — merge earnContracts รอบสุดท้ายให้ถูกต้อง)
+    if (typeof renderEarnContracts === 'function') {
+      try { renderEarnContracts(); } catch(e) {}
     }
+    console.warn('[DB] Boot complete — dashboard:', _dashSettled.status,
+      '| offline:', _offlineSettled.status);
   })();
 
   setTimeout(snapshotPortfolio, 5000);
