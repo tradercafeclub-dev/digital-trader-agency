@@ -4837,6 +4837,15 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
   </div>
 </div>
 
+<!-- FUTURES TAB BAR -->
+<div class="fut-tab-bar" id="futTabBar">
+  <div class="fut-tab-btn active" id="futTabBtnContract" onclick="futSwitchTab('contract')">📋 Contract</div>
+  <div class="fut-tab-btn" id="futTabBtnDirect" onclick="futSwitchTab('direct')">⚡ Direct</div>
+</div>
+
+<!-- TAB: CONTRACT (เนื้อหาเดิมทั้งหมดของ page-futures) -->
+<div id="fut-tab-contract" class="active">
+
 <!-- API STATUS -->
 <div class="api-status">
   <div class="api-dot loading" id="apiDot"></div>
@@ -5440,6 +5449,245 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
   </div>
 </div><!-- /futuresChartPanel -->
 
+</div><!-- /fut-tab-contract -->
+
+<!-- TAB: DIRECT (ย้ายมาจาก page-futures-direct) -->
+<div id="fut-tab-direct">
+
+<!-- API STATUS (shared via id — same DOM as contract tab but controlled via futSwitchTab) -->
+<!-- futd-specific: Futures Wallet Balance bar แทน Earn Contract Selector -->
+<div class="futd-api-status-bar" id="futdApiStatusBar">
+  <div style="display:flex;align-items:center;gap:6px">
+    <span style="font-size:9px;color:var(--t2)">⚡ Direct</span>
+    <span class="futd-bal-chip" id="futd-balance-chip">Bal: — USDT</span>
+    <span class="futd-bal-chip futd-margin-chip" id="futd-margin-chip">Margin: — USDT</span>
+  </div>
+  <button class="ast-btn-secondary" onclick="openTransfer(null,'usdm')" style="font-size:10px;padding:3px 8px;white-space:nowrap">โอนเงินเข้า</button>
+</div>
+
+<!-- 24H TICKER STRIP (Direct-specific ids: futd-tk-*) -->
+<div style="display:flex;gap:0;overflow-x:auto;border-bottom:1px solid var(--border);background:var(--bg2);scrollbar-width:none" id="futdTickerStrip">
+  <div style="flex:1;min-width:0;padding:5px 10px;border-right:1px solid var(--border)">
+    <div style="font-size:9px;color:var(--t2);margin-bottom:1px">Mark</div>
+    <div style="font-size:11px;font-family:var(--mono);font-weight:600;color:var(--t1)" id="futd-tk-mark">—</div>
+  </div>
+  <div style="flex:1;min-width:0;padding:5px 10px;border-right:1px solid var(--border)">
+    <div style="font-size:9px;color:var(--t2);margin-bottom:1px">24h High</div>
+    <div style="font-size:11px;font-family:var(--mono);font-weight:500;color:var(--g)" id="futd-tk-high">—</div>
+  </div>
+  <div style="flex:1;min-width:0;padding:5px 10px;border-right:1px solid var(--border)">
+    <div style="font-size:9px;color:var(--t2);margin-bottom:1px">24h Low</div>
+    <div style="font-size:11px;font-family:var(--mono);font-weight:500;color:var(--r)" id="futd-tk-low">—</div>
+  </div>
+  <div style="flex:1;min-width:0;padding:5px 10px">
+    <div style="font-size:9px;color:var(--t2);margin-bottom:1px">24h Vol</div>
+    <div style="font-size:11px;font-family:var(--mono);font-weight:500;color:var(--t1)" id="futd-tk-vol">—</div>
+  </div>
+</div>
+
+<!-- MAIN SPLIT (same layout as Contract) -->
+<div class="main-split">
+
+  <!-- LEFT: TRADE PANEL (Direct) -->
+  <div class="left-panel">
+
+    <!-- Funding / Countdown (Direct-specific ids: futd-funding*) -->
+    <div style="padding:5px 8px 4px;border-bottom:1px solid var(--border)">
+      <div style="font-size:9px;color:var(--t2)">Funding (8h) / Countdown</div>
+      <div style="font-size:10px;font-family:var(--mono);color:var(--t1);font-weight:500" id="futdFundingVal">0.01000%/--:--:--</div>
+    </div>
+
+    <!-- Open/Close toggle (Direct-specific ids: futdOC*) -->
+    <div class="oc-toggle">
+      <div class="oc-btn active" id="futdOcOpen"  onclick="futdSetOC('open')">Open</div>
+      <div class="oc-btn"        id="futdOcClose" onclick="futdSetOC('close')">Close</div>
+    </div>
+
+    <!-- Cross / Leverage (Direct: 5x–150x, prefix futd) -->
+    <div class="cls-row">
+      <!-- [v2.53] Margin Mode toggle: Cross / Isolated -->
+      <div class="cls-btn" id="futdMarginModeBtn" onclick="futdToggleMarginMode()" title="กดเพื่อสลับ Cross / Isolated Margin">Cross</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+        <div class="lev-btn" id="futdLevBtn" onclick="futdCycleLev()">50x</div>
+      </div>
+      <div class="side-btn" id="futdSideBtn" onclick="futdToggleSide()">S</div>
+    </div>
+
+    <!-- Order type (Direct: Limit / Market only — no BBO) -->
+    <div class="order-type-row">
+      <div class="info-ico">i</div>
+      <div class="select-wrap" onclick="futdCycleOrderType()">
+        <div class="fake-select"><span id="futdOrderTypeLabel">Limit</span><div class="arr"></div></div>
+      </div>
+    </div>
+
+    <!-- Limit Price Input (Direct) -->
+    <div class="amt-row" id="futdLimitPriceRow">
+      <div class="amt-input-wrap">
+        <div class="amt-btn" onclick="futdAdjPrice(-1)">−</div>
+        <input class="amt-inp" id="futdLimitPriceInp" type="number" placeholder="Price (USDT)" step="0.1">
+        <div class="amt-unit" style="background:transparent;border:none;color:var(--t2)">USDT</div>
+      </div>
+    </div>
+
+    <!-- Direct Order Mode selector (replaces BBO/Counterparty — Direct uses Market/Limit only) -->
+    <div class="cpbbo-row">
+      <div class="cp-select" style="flex:1;cursor:default">
+        <span style="font-size:11px;color:var(--t2);font-weight:500" id="futdOrderModeLabel">⚡ Futures Direct</span>
+      </div>
+      <button class="bbo-btn" style="background:var(--bg3);border-color:var(--bl);color:var(--t2);cursor:default;font-size:10px" title="Direct ส่ง order ตรงไปยัง Hyperliquid โดยไม่ผ่าน EarnContract">DIRECT</button>
+    </div>
+
+    <!-- Amount -->
+    <div class="amt-row">
+      <div class="amt-input-wrap">
+        <div class="amt-btn" onclick="futdAdjAmt(-1)">−</div>
+        <input class="amt-inp" id="futd-size" type="number" placeholder="Amount" step="0.001" oninput="futdCalcMargin()">
+        <div class="amt-unit" onclick="futdToggleAmtUnit()">
+          <span id="futdAmtUnit">BTC</span>
+          <div class="arr" style="border-top-color:var(--t3)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slider -->
+    <div class="slider-row">
+      <input class="pct-slider" id="futdPctSlider" type="range" min="0" max="100" value="0" oninput="futdOnSlider(this)">
+      <div class="slider-marks">
+        <div class="slider-mark" data-v="0%"   onclick="futdSetSlider(0)"></div>
+        <div class="slider-mark" data-v="25%"  onclick="futdSetSlider(25)"></div>
+        <div class="slider-mark" data-v="50%"  onclick="futdSetSlider(50)"></div>
+        <div class="slider-mark" data-v="75%"  onclick="futdSetSlider(75)"></div>
+        <div class="slider-mark" data-v="100%" onclick="futdSetSlider(100)"></div>
+      </div>
+    </div>
+
+    <!-- Avbl (Futures Wallet Balance) -->
+    <div class="avbl-row">
+      <span class="avbl-label">Avbl</span>
+      <span><span class="avbl-val" id="futdAvblVal">0.00 USDT</span><span class="avbl-swap" onclick="openTransfer(null,'usdm')">⇄</span></span>
+    </div>
+
+    <!-- Margin hint row -->
+    <div id="futdMarginHintBar" style="display:flex;align-items:center;justify-content:space-between;padding:3px 8px 2px;gap:6px">
+      <span id="futd-margin-hint" style="font-size:10px;color:var(--t2)">Margin: — USDT</span>
+    </div>
+
+    <!-- TP/SL -->
+    <div class="tpsl-row" onclick="futdToggleTPSL()">
+      <div class="sq-check" id="futdTpslCheck"></div>
+      <span class="tpsl-label">TP/SL</span>
+    </div>
+
+    <!-- TP/SL inputs -->
+    <div id="futdTpslPanel" style="display:none;padding:0 8px 6px;gap:4px;flex-direction:column">
+      <div class="amt-input-wrap" style="margin-bottom:3px">
+        <span style="font-size:10px;color:var(--g);min-width:22px">TP</span>
+        <input class="amt-inp" id="futd-tp" type="number" placeholder="Take Profit Price">
+        <span style="font-size:9px;color:var(--t3)">USDT</span>
+      </div>
+      <div class="amt-input-wrap">
+        <span style="font-size:10px;color:var(--r);min-width:22px">SL</span>
+        <input class="amt-inp" id="futd-sl" type="number" placeholder="Stop Loss Price">
+        <span style="font-size:9px;color:var(--t3)">USDT</span>
+      </div>
+    </div>
+
+    <!-- GTC -->
+    <div class="gtc-row" onclick="showToast('Time in Force — GTC')">
+      <div class="gtc-sel"><span style="font-size:11px;color:var(--t2)">GTC</span><div class="gtc-arr"></div></div>
+    </div>
+
+    <!-- Max Open / Cost (Long) -->
+    <div class="maxcost-row">
+      <div class="mc-line"><span>Max Open</span><span class="mc-val" id="futdMaxOpen">0.000 BTC</span></div>
+      <div class="mc-line"><span>Cost</span><span class="mc-val" id="futdCostVal">0.00 USDT</span></div>
+    </div>
+
+    <!-- Open Long button -->
+    <button class="trade-btn long" id="futdTradeBtnLong" onclick="futdPlaceOrder('long')">
+      <span id="futdTradeBtnLongLabel">Open Long</span><span class="tb-sub">Buy</span>
+    </button>
+
+    <!-- Max Open / Cost (Short) -->
+    <div class="maxcost-row">
+      <div class="mc-line"><span>Max Open</span><span class="mc-val" id="futdMaxOpenS">0.000 BTC</span></div>
+      <div class="mc-line"><span>Cost</span><span class="mc-val" id="futdCostValS">0.00 USDT</span></div>
+    </div>
+
+    <!-- Open Short button -->
+    <button class="trade-btn short" id="futdTradeBtnShort" onclick="futdPlaceOrder('short')">
+      <span id="futdTradeBtnShortLabel">Open Short</span><span class="tb-sub">Sell</span>
+    </button>
+
+  </div><!-- /left-panel Direct -->
+
+  <!-- RIGHT: ORDER BOOK (Direct — prefix futd*) -->
+  <div class="right-panel">
+    <div class="ob-header">
+      <span>Price<span class="sub">(USDT)</span></span>
+      <span style="text-align:right">Amount<span class="sub" id="futdObAmtUnit">(BTC)</span></span>
+    </div>
+
+    <!-- ASK rows -->
+    <div id="futdAskList" style="flex:1;min-height:120px;overflow:hidden;display:flex;flex-direction:column-reverse"></div>
+
+    <!-- Mid price -->
+    <div class="ob-mid">
+      <span class="ob-mid-price up" id="futdObMidPrice">—</span>
+      <span class="ob-mid-mark" id="futdObMarkPrice">—</span>
+      <span class="ob-mid-arr" onclick="showToast('Direct Price Detail')">›</span>
+    </div>
+
+    <!-- BID rows -->
+    <div id="futdBidList" style="flex:1;min-height:120px;overflow:hidden;display:flex;flex-direction:column"></div>
+
+    <!-- Ratio -->
+    <div class="ob-ratio">
+      <span class="ob-ratio-g" id="futdObLongR">—%</span>
+      <div class="ob-ratio-bar"><div class="ob-ratio-fill" id="futdObRatioFill" style="width:50%"></div></div>
+      <span class="ob-ratio-r" id="futdObShortR">—%</span>
+    </div>
+
+    <!-- Size + Grid -->
+    <div class="ob-size-row">
+      <input class="ob-size-inp" id="futdObSizeInp" type="number" value="1" min="0.001">
+      <div class="ob-grid-ico" onclick="showToast('Layout')">
+        <div class="ob-grid-row"><div class="ob-gdot"></div><div class="ob-gdot"></div></div>
+        <div class="ob-grid-row"><div class="ob-gdot"></div><div class="ob-gdot"></div></div>
+      </div>
+    </div>
+  </div><!-- /right-panel Direct -->
+
+</div><!-- /main-split Direct -->
+
+<!-- TABS BAR (Direct — prefix futd) -->
+<div class="tabs-bar">
+  <div class="tab active" id="futdTabPos" onclick="futdSwitchSubTab('pos')">Positions<span class="cnt" id="futdCntPos">0</span></div>
+  <div class="tab"        id="futdTabOrd" onclick="futdSwitchSubTab('ord')">Open Orders<span class="cnt" id="futdCntOrd">0</span></div>
+  <div class="tab-hdr-r">
+    <span class="ico" onclick="showToast('Sort')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="10" y2="18"/></svg></span>
+    <span class="ico" onclick="showToast('Trade History — Direct')" style="cursor:pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="18" rx="2"/><circle cx="16" cy="16" r="5" fill="var(--bg)" stroke="currentColor" stroke-width="2"/><polyline points="16 13 16 16 18 16"/></svg></span>
+  </div>
+</div>
+
+<!-- Filter row -->
+<div class="filter-row">
+  <label class="fcheck" onclick="futdToggleHide()"><div class="sq on" id="futdHideChk"></div><span>Hide Other Pairs</span></label>
+  <button class="btn-ca" onclick="futdCloseAll()">Close All</button>
+</div>
+
+<!-- SCROLLABLE (Direct positions / orders) -->
+<div class="scrollable" id="futdScrollable">
+  <div id="futd-positions-list"></div>
+  <div id="futd-orders-list" style="display:none"></div>
+</div>
+
+<!-- spacer ให้ chart panel ไม่บัง content -->
+<div id="futd-chart-spacer" style="height:0px"></div>
+
+</div><!-- /fut-tab-direct -->
+
 </div><!-- /page-futures -->
 
 <!-- ═══ PAGE: ASSETS ═══ -->
@@ -5495,7 +5743,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
       </div>
       <div class="ast-account-row" onclick="astSwitchTabByName('futures-a')"><span class="ast-acct-name">Futures-Contract</span><div class="ast-acct-right"><div class="ast-acct-usdt ast-hideable" id="ovw-futures-usdt">41.87 USDT</div><div class="ast-acct-usd ast-hideable" id="ovw-futures-usd">≈ $1,363.39</div></div></div>
       <!-- [FUTURES-DIRECT v1] แถวใหม่เพิ่มเข้ามาเท่านั้น — ไม่แก้แถว Futures (Earn-linked) ด้านบน -->
-      <div class="ast-account-row" onclick="navTo('futures-direct')"><span class="ast-acct-name">Futures-Direct <span style="font-size:9px;color:var(--y);background:var(--ybg);border-radius:5px;padding:1px 5px;margin-left:4px">เทรดตรง</span></span><div class="ast-acct-right"><div class="ast-acct-usd" style="color:var(--t2);font-size:11px">›</div></div></div>
+      <div class="ast-account-row" onclick="navTo('futures');requestAnimationFrame(()=>futSwitchTab('direct'))"><span class="ast-acct-name">Futures-Direct <span style="font-size:9px;color:var(--y);background:var(--ybg);border-radius:5px;padding:1px 5px;margin-left:4px">เทรดตรง</span></span><div class="ast-acct-right"><div class="ast-acct-usd" style="color:var(--t2);font-size:11px">›</div></div></div>
       <div class="ast-account-row" onclick="astSwitchTabByName('earn')"><span class="ast-acct-name">Earn</span><div class="ast-acct-right"><div class="ast-acct-usdt ast-hideable" id="ovw-earn-usdt">0.00 USDT</div><div class="ast-acct-usd ast-hideable" id="ovw-earn-usd">≈ $0.00</div></div></div>
       <div class="ast-account-row" onclick="astSwitchTabByName('funding')" style="display:none"><span class="ast-acct-name">Funding</span><div class="ast-acct-right"><div class="ast-acct-usdt ast-hideable" id="ovw-funding-usdt">0.00000044 USDT</div><div class="ast-acct-usd ast-hideable" id="ovw-funding-usd">≈ $0.00001433</div></div></div>
       <div class="ast-account-row" onclick="astSwitchTabByName('spot-a')"><span class="ast-acct-name">Spot</span><div class="ast-acct-right"><div class="ast-acct-usdt ast-hideable" id="ovw-spot-usdt">0.00 USDT</div><div class="ast-acct-usd ast-hideable" id="ovw-spot-usd">≈ $0.00</div></div></div>
@@ -5714,7 +5962,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
       </div>
 
       <div class="ast-action-row" style="padding-top:12px">
-        <button class="ast-btn-primary" onclick="navTo('futures-direct')">Trade</button>
+        <button class="ast-btn-primary" onclick="navTo('futures');requestAnimationFrame(()=>futSwitchTab('direct'))">Trade</button>
         <button class="ast-btn-secondary" onclick="openTransfer(null,'usdm')">Transfer</button>
       </div>
 
@@ -7822,7 +8070,15 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
      placeFuturesOrder / closeFuturesPosition / cancelFuturesOrder (ดู GAS MODULE 14)
 ════════════════════════════════ -->
 <style>
-.futd-wrap{padding:14px 16px 90px}
+/* ══ FUTURES PAGE — Tab Bar (Contract / Direct) ══ */
+.fut-tab-bar{display:flex;background:var(--bg2);border-bottom:2px solid var(--border);position:sticky;top:0;z-index:200}
+.fut-tab-btn{flex:1;text-align:center;padding:9px 4px 7px;font-size:12px;font-weight:600;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .18s,border-color .18s;white-space:nowrap}
+.fut-tab-btn.active{color:var(--y);border-bottom-color:var(--y)}
+#fut-tab-contract,#fut-tab-direct{display:none}
+#fut-tab-contract.active,#fut-tab-direct.active{display:block}
+
+/* ══ FUTURES-DIRECT: base layout ══ */
+.futd-wrap{padding:14px 16px 16px}
 .futd-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .futd-back{cursor:pointer;color:var(--t1);font-size:20px;line-height:1;padding:2px 6px}
 .futd-title{font-size:16px;font-weight:700;color:var(--t1)}
@@ -7834,6 +8090,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 .futd-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 .futd-stat-lbl{font-size:10px;color:var(--t2)}
 .futd-stat-val{font-size:13px;font-weight:600;font-family:var(--mono);color:var(--t1)}
+/* ── Form ── */
 .futd-form-row{display:flex;gap:8px;margin-bottom:8px}
 .futd-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--t1);font-size:13px;font-family:var(--mono)}
 .futd-select{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px 10px;color:var(--t1);font-size:13px}
@@ -7845,86 +8102,426 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 .futd-submit.long{background:var(--g)}
 .futd-submit.short{background:var(--r)}
 .futd-margin-hint{font-size:11px;color:var(--t2);margin:4px 0 10px;text-align:right}
+/* ── Section title ── */
 .futd-section-title{font-size:12px;font-weight:600;color:var(--t2);margin:16px 0 8px}
+/* ── Position card (enhanced) ── */
 .futd-pos-row{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:11px;margin-bottom:8px}
-.futd-pos-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.futd-pos-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
 .futd-pos-sym{font-size:13px;font-weight:700;color:var(--t1)}
 .futd-pos-side{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px}
 .futd-pos-side.long{background:var(--gbg);color:var(--g)}
 .futd-pos-side.short{background:var(--rbg);color:var(--r)}
-.futd-pos-pnl{font-family:var(--mono);font-weight:700;font-size:13px}
-.futd-pos-detail{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:10.5px;color:var(--t2);margin-bottom:8px}
-.futd-pos-detail b{color:var(--t1);font-family:var(--mono);display:block}
+.futd-pos-pnl{font-family:var(--mono);font-weight:700;font-size:14px;text-align:right}
+.futd-pos-roi{font-size:10px;font-family:var(--mono);text-align:right;margin-top:1px}
+.futd-pos-detail{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px 6px;font-size:10.5px;color:var(--t2);margin-bottom:6px}
+.futd-pos-detail b{color:var(--t1);font-family:var(--mono);display:block;font-size:11px}
+.futd-pos-detail2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px 6px;font-size:10.5px;color:var(--t2);margin-bottom:8px}
+.futd-pos-detail2 b{color:var(--t1);font-family:var(--mono);display:block;font-size:11px}
+.futd-pos-tpsl-row{display:flex;align-items:center;gap:4px;margin-bottom:7px;flex-wrap:wrap}
+.futd-tpsl-chip{font-size:10px;padding:2px 7px;border-radius:4px;font-family:var(--mono)}
+.futd-tpsl-chip.tp{background:rgba(14,203,129,.12);color:var(--g);border:1px solid rgba(14,203,129,.25)}
+.futd-tpsl-chip.sl{background:rgba(246,70,93,.12);color:var(--r);border:1px solid rgba(246,70,93,.25)}
+.futd-tpsl-chip.none{background:var(--bg3);color:var(--t3);border:1px solid var(--border)}
 .futd-pos-actions{display:flex;gap:8px}
 .futd-btn-sm{flex:1;text-align:center;padding:7px;border-radius:7px;font-size:11.5px;font-weight:600;cursor:pointer;border:1px solid var(--border);color:var(--t1);background:var(--bg3)}
 .futd-btn-sm.danger{color:var(--r);border-color:rgba(246,70,93,.4)}
+.futd-btn-sm.warn{color:var(--y);border-color:rgba(240,185,11,.4)}
 .futd-empty{text-align:center;color:var(--t3);font-size:12px;padding:24px 0}
+/* ── Margin ratio bar ── */
+.futd-mr-bar-wrap{margin:4px 0 7px}
+.futd-mr-label{display:flex;justify-content:space-between;font-size:10px;color:var(--t2);margin-bottom:2px}
+.futd-mr-bar-bg{height:3px;border-radius:2px;background:var(--bg4)}
+.futd-mr-bar-fill{height:3px;border-radius:2px;background:var(--g);transition:width .4s}
+/* ── Chart panel (page-futures-direct) ── */
+#futdChartPanel{
+  position:fixed;bottom:52px;left:0;right:0;
+  max-width:480px;margin:0 auto;
+  z-index:150;background:var(--bg);
+  border-top:1px solid var(--border);
+  box-shadow:0 -2px 12px rgba(0,0,0,.35);
+  user-select:none;display:none;
+}
+#futdChartPanel.active{display:block}
+.futd-chart-drag{height:10px;cursor:row-resize;display:flex;align-items:center;justify-content:center}
+.futd-chart-drag::after{content:'';width:36px;height:4px;border-radius:2px;background:var(--bl)}
+.futd-chart-collapsed-hdr{display:flex;align-items:center;gap:4px;padding:4px 10px;cursor:pointer;min-height:28px;display:none}
+.futd-chart-collapsed-hdr.show{display:flex}
+.futd-tf-bar{display:flex;align-items:center;gap:1px;padding:4px 8px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.futd-tf-bar::-webkit-scrollbar{display:none}
+.futd-tf-label{padding:3px 7px;border-radius:4px;font-size:11px;font-family:var(--mono);color:var(--t2);cursor:pointer;white-space:nowrap;flex-shrink:0}
+.futd-tf-label.active{background:var(--y);color:#000;font-weight:700}
+.futd-ma-row{display:flex;gap:10px;padding:2px 8px;font-size:10px;font-family:var(--mono)}
+.futd-chart-canvas-wrap{position:relative;width:100%}
+.futd-vol-wrap{position:relative;width:100%;height:36px;background:var(--bg);border-top:1px solid rgba(43,49,57,.5);flex-shrink:0}
+.futd-ind-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;border-top:1px solid var(--border)}
+.futd-ind-btn{padding:2px 8px;border-radius:3px;font-size:10px;cursor:pointer;color:var(--t2)}
+.futd-ind-btn.active{background:var(--y-15);color:var(--y)}
+
+/* ══════════════════════════════
+   Direct Tab — New Layout CSS (v2.50)
+══════════════════════════════ */
+/* API Status / Balance bar ที่ด้านบนของ Direct tab */
+.futd-api-status-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:5px 8px;background:rgba(240,185,11,.04);
+  border-bottom:1px solid var(--border);gap:6px;
+}
+.futd-bal-chip{
+  font-size:10px;font-family:var(--mono);font-weight:600;
+  color:var(--t1);background:var(--bg3);border:1px solid var(--bl);
+  border-radius:4px;padding:2px 6px;white-space:nowrap;
+}
+.futd-margin-chip{color:var(--t2)}
+
+/* ── TP/SL sheet (futd-specific) ── */
+#futdTpslSheet{position:fixed;inset:0;z-index:1050;pointer-events:none}
+#futdTpslSheet.open{pointer-events:all}
+#futdTpslBg{position:absolute;inset:0;background:rgba(0,0,0,.55);opacity:0;transition:opacity .3s}
+#futdTpslSheet.open #futdTpslBg{opacity:1}
+#futdTpslPanel{
+  position:absolute;bottom:0;left:50%;transform:translateX(-50%) translateY(100%);
+  width:100%;max-width:480px;
+  background:var(--bg2);border-radius:16px 16px 0 0;
+  transition:transform .35s cubic-bezier(.32,1,.23,1);
+  max-height:80vh;overflow-y:auto;
+}
+#futdTpslSheet.open #futdTpslPanel{transform:translateX(-50%) translateY(0)}
 </style>
-<div class="page" id="page-futures-direct">
-  <div class="futd-wrap">
-    <div class="futd-header">
-      <div class="futd-back" onclick="navTo('assets')">‹</div>
-      <div class="futd-title">Futures-Direct</div>
-      <div class="futd-badge">ไม่มีประกัน</div>
-    </div>
-
-    <!-- บัญชี -->
-    <div class="futd-card">
-      <div class="futd-bal-row">
-        <div>
-          <div class="futd-bal-lbl">Futures Wallet Balance</div>
-          <div class="futd-bal-val" id="futd-balance">0.00 <span style="font-size:12px;color:var(--t2)">USDT</span></div>
-        </div>
-        <button class="ast-btn-secondary" onclick="openTransfer(null,'usdm')" style="white-space:nowrap">โอนเงินเข้า</button>
-      </div>
-      <div class="futd-stats">
-        <div><div class="futd-stat-lbl">Margin ที่ใช้อยู่</div><div class="futd-stat-val" id="futd-margin-used">0.00 USDT</div></div>
-        <div><div class="futd-stat-lbl">Margin ที่ว่าง</div><div class="futd-stat-val" id="futd-margin-avail">0.00 USDT</div></div>
-      </div>
-    </div>
-
-    <!-- ฟอร์มเปิด Position -->
-    <div class="futd-card">
-      <div class="futd-form-row">
-        <select class="futd-select" id="futd-symbol" onchange="futdOnSymbolChange()" style="flex:1">
-          <option value="BTC">BTCUSDT</option>
-          <option value="ETH">ETHUSDT</option>
-          <option value="SOL">SOLUSDT</option>
-          <option value="BNB">BNBUSDT</option>
-        </select>
-        <select class="futd-select" id="futd-lev">
-          <option>5</option><option>10</option><option>20</option><option selected>50</option>
-          <option>75</option><option>100</option><option>150</option>
-        </select>
-        <span style="align-self:center;font-size:11px;color:var(--t2)">x</span>
-      </div>
-      <div class="futd-form-row">
-        <div class="futd-input" id="futd-mkprice" style="text-align:center;color:var(--t2)">ราคาตลาด: —</div>
-      </div>
-      <div class="futd-side-row">
-        <div class="futd-side-btn long active" id="futd-side-long" onclick="futdSetSide('long')">Long / Buy</div>
-        <div class="futd-side-btn short" id="futd-side-short" onclick="futdSetSide('short')">Short / Sell</div>
-      </div>
-      <div class="futd-form-row">
-        <input class="futd-input" id="futd-size" type="number" placeholder="Size (จำนวนเหรียญ)" oninput="futdCalcMargin()">
-      </div>
-      <div class="futd-form-row">
-        <input class="futd-input" id="futd-tp" type="number" placeholder="TP Price (ไม่บังคับ)">
-        <input class="futd-input" id="futd-sl" type="number" placeholder="SL Price (ไม่บังคับ)">
-      </div>
-      <div class="futd-margin-hint" id="futd-margin-hint">Margin โดยประมาณ: — USDT</div>
-      <button class="futd-submit long" id="futd-submit-btn" onclick="futdSubmitOpen()">เปิด Position (Long)</button>
-    </div>
-
-    <!-- Positions ที่เปิดอยู่ -->
-    <div class="futd-section-title">Positions ที่เปิดอยู่</div>
-    <div id="futd-positions-list"><div class="futd-empty">กำลังโหลด...</div></div>
-
-    <!-- Orders ที่รอ fill -->
-    <div class="futd-section-title">Limit Orders รอ Fill</div>
-    <div id="futd-orders-list"><div class="futd-empty">กำลังโหลด...</div></div>
+<!-- ════ FUTURES-DIRECT: Chart Panel (fixed above bottom nav) ════ -->
+<div id="futdChartPanel">
+  <!-- Drag handle -->
+  <div class="futd-chart-drag" id="futdDragHandle"></div>
+  <!-- Collapsed header (shown when chart is collapsed) -->
+  <div class="futd-chart-collapsed-hdr" id="futdChartHdr" onclick="futdToggleChart()">
+    <span id="futdChartHdrSym" style="font-size:11px;font-weight:600;color:var(--t2);font-family:var(--mono)">BTCUSDT</span>
+    <span style="font-size:10px;color:var(--t3)">Perp</span>
+    <span style="flex:1"></span>
+    <span style="font-size:12px;color:var(--t3);padding:0 8px">▲</span>
   </div>
-</div>
+  <!-- Chart body -->
+  <div id="futdChartSec">
+    <!-- TF bar -->
+    <div class="futd-tf-bar" id="futdTFBar">
+      <span class="futd-tf-label" onclick="futdSetTF(this,'1m')">1m</span>
+      <span class="futd-tf-label" onclick="futdSetTF(this,'3m')">3m</span>
+      <span class="futd-tf-label active" onclick="futdSetTF(this,'5m')">5m</span>
+      <span class="futd-tf-label" onclick="futdSetTF(this,'15m')">15m</span>
+      <span class="futd-tf-label" onclick="futdSetTF(this,'30m')">30m</span>
+      <span class="futd-tf-label" onclick="futdSetTF(this,'1h')">1h</span>
+      <span class="futd-tf-label" onclick="futdSetTF(this,'2h')">2h</span>
+      <!-- Countdown -->
+      <span id="futdCandleCountdown" style="font-size:10px;font-family:var(--mono);flex-shrink:0;padding:2px 7px;margin:0 2px;border-radius:10px;white-space:nowrap;background:rgba(14,203,129,.18);color:#0ecb81;font-weight:700;border:1px solid rgba(14,203,129,.3);min-width:42px;text-align:center">--:--</span>
+      <!-- Toggle -->
+      <span onclick="futdToggleChart()" style="font-size:12px;color:var(--t3);cursor:pointer;padding:2px 8px 6px 4px;flex-shrink:0;margin-left:auto">▲</span>
+    </div>
+    <!-- MA row -->
+    <div class="futd-ma-row">
+      <span style="color:#f0a500">MA(7):<span id="futdMa7"> —</span></span>
+      <span style="color:#e040fb">MA(25):<span id="futdMa25"> —</span></span>
+      <span style="color:#26c6da">MA(99):<span id="futdMa99"> —</span></span>
+    </div>
+    <!-- Canvas -->
+    <div class="futd-chart-canvas-wrap" id="futdChartWrap">
+      <canvas id="futdChartCanvas"></canvas>
+      <!-- current-price line/tag -->
+      <div style="position:absolute;right:0;top:0;bottom:0;pointer-events:none">
+        <div id="futdCurLine" style="position:absolute;right:0;left:0;height:1px;border-top:1px dashed var(--y);opacity:.6;pointer-events:none"></div>
+        <div id="futdCurTag" style="position:absolute;right:0;background:var(--y);color:#000;font-size:9px;font-family:var(--mono);font-weight:700;padding:1px 4px;border-radius:2px 0 0 2px;pointer-events:none">—</div>
+      </div>
+      <div id="futdChOhlc" style="position:absolute;top:4px;left:6px;display:flex;gap:6px;font-size:9px;font-family:var(--mono);color:var(--t2);pointer-events:none">
+        <span id="futdChO">O:—</span><span id="futdChH" style="color:var(--g)">H:—</span>
+        <span id="futdChL" style="color:var(--r)">L:—</span><span id="futdChC">C:—</span>
+      </div>
+    </div>
+    <!-- Volume -->
+    <div class="futd-vol-wrap" id="futdVolWrap">
+      <canvas id="futdVolCanvas" style="width:100%;height:100%;display:block"></canvas>
+    </div>
+    <!-- Indicator toggle -->
+    <div class="futd-ind-bar" id="futdIndBar">
+      <span class="futd-ind-btn" id="futdIndRSI" onclick="futdIndToggle('RSI')">RSI</span>
+      <span class="futd-ind-btn" id="futdIndMACD" onclick="futdIndToggle('MACD')">MACD</span>
+      <span class="futd-ind-btn" id="futdIndBB" onclick="futdIndToggle('BB')">BB</span>
+      <span class="futd-ind-btn" id="futdIndEMA" onclick="futdIndToggle('EMA')">EMA</span>
+    </div>
+    <!-- Indicator panel -->
+    <div id="futdIndPanel" style="display:none;position:relative;padding:2px 8px;background:var(--bg)">
+      <span style="font-size:10px;color:var(--t2)" id="futdIndLabel">RSI(14)</span>
+      <span style="font-size:10px;font-family:var(--mono);color:var(--t1);margin-left:6px" id="futdIndVal">—</span>
+      <canvas id="futdIndCanvas" style="width:100%;height:60px;display:block"></canvas>
+    </div>
+  </div>
+</div><!-- /futdChartPanel -->
+
+<!-- ════ FUTURES-DIRECT: TP/SL Bottom Sheet ════ -->
+<!-- [v2.55] futdTpslSheet — อัพเกรดให้ตรงกับโครงสร้าง Contract tab (tabs + Trigger + Amount + live PnL) -->
+<style>
+/* futdTpslSheet tabs */
+.futd-tssh-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:0}
+.futd-tssh-tab{flex:1;padding:10px 0;text-align:center;font-size:12px;font-weight:600;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.futd-tssh-tab.active{color:var(--y);border-bottom-color:var(--y)}
+.futd-tssh-panel{display:none;padding:14px 16px 0}
+.futd-tssh-panel.active{display:block}
+.futd-tssh-section{font-size:12px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.futd-tssh-row{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;color:var(--t3)}
+.futd-tssh-sel{display:flex;align-items:center;gap:3px;background:var(--bg3);border:1px solid var(--bl);border-radius:4px;padding:3px 7px;cursor:pointer;font-size:11px;color:var(--t2)}
+.futd-tssh-inp-wrap{display:flex;align-items:center;background:var(--bg3);border:1px solid var(--bl);border-radius:6px;padding:0 10px;height:40px;margin-bottom:4px}
+.futd-tssh-inp{flex:1;background:transparent;border:none;outline:none;color:var(--t1);font-size:13px;font-family:var(--mono)}
+.futd-tssh-inp-unit{font-size:11px;color:var(--t2)}
+.futd-tssh-hint{font-size:10px;color:var(--t3);margin-bottom:8px;line-height:1.4}
+.futd-tssh-live-pnl{font-size:12px;font-weight:700;font-family:var(--mono);padding:2px 8px;border-radius:4px;margin-bottom:6px;display:none}
+.futd-tssh-divider{border-top:1px solid var(--border);margin:10px 0}
+.futd-tssh-amt-row{padding:4px 0 10px}
+.futd-tssh-amt-label{font-size:12px;font-weight:600;color:var(--t2);margin-bottom:4px}
+.futd-tssh-amt-full{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--t1);margin-bottom:6px}
+.futd-tssh-liq-note{font-size:11px;color:var(--r);background:rgba(246,70,93,.08);border-radius:6px;padding:6px 10px;margin-bottom:12px}
+.futd-tssh-confirm-btn{display:block;width:100%;padding:14px 0;background:var(--y);color:#000;font-size:15px;font-weight:700;border:none;border-radius:8px;cursor:pointer;margin-bottom:2px}
+/* Trailing stop styles */
+.futd-tssh-cb-row{display:flex;gap:6px;margin-bottom:10px}
+.futd-tssh-cb-btn{flex:1;padding:6px 0;text-align:center;background:var(--bg3);border:1px solid var(--bl);border-radius:4px;font-size:12px;color:var(--t2);cursor:pointer;transition:all .15s}
+.futd-tssh-cb-btn.active{background:rgba(240,185,11,.15);border-color:var(--y);color:var(--y)}
+</style>
+<div id="futdTpslSheet">
+  <div id="futdTpslBg" onclick="futdCloseTpslSheet()"></div>
+  <div id="futdTpslPanel">
+    <div style="width:36px;height:4px;background:var(--bl);border-radius:2px;margin:10px auto 6px"></div>
+    <div style="font-size:16px;font-weight:700;padding:4px 16px 10px;border-bottom:1px solid var(--border)">TP/SL</div>
+    <!-- Position info row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px 16px 10px;border-bottom:1px solid var(--border);font-size:12px" id="futdTpslInfo">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <span style="font-size:10px;color:var(--t3)">Symbol</span>
+        <span style="color:var(--t1);font-family:var(--mono);font-size:12px;font-weight:600" id="futdTpslSym">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px;text-align:right">
+        <span style="font-size:10px;color:var(--t3)">Entry Price (USDT)</span>
+        <span style="color:var(--t1);font-family:var(--mono);font-size:12px;font-weight:600" id="futdTpslEntry">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <span style="font-size:10px;color:var(--t3)">Mark Price (USDT)</span>
+        <span style="color:var(--t1);font-family:var(--mono);font-size:12px;font-weight:600" id="futdTpslMark">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px;text-align:right">
+        <span style="font-size:10px;color:var(--t3)">Est. Liq. Price (USDT)</span>
+        <span style="color:var(--r);font-family:var(--mono);font-size:12px;font-weight:600" id="futdTpslLiq">—</span>
+      </div>
+    </div>
+    <!-- Tabs: TP/SL / Position TP/SL / Trailing Stop -->
+    <div class="futd-tssh-tabs">
+      <div class="futd-tssh-tab active" id="futdTsshTabTpsl" onclick="futdTsshSwitchTab('tpsl')">TP/SL</div>
+      <div class="futd-tssh-tab" id="futdTsshTabPosition" onclick="futdTsshSwitchTab('position')">Position TP/SL</div>
+      <div class="futd-tssh-tab" id="futdTsshTabTrailing" onclick="futdTsshSwitchTab('trailing')">Trailing Stop</div>
+    </div>
+
+    <!-- ── TAB 1: TP/SL ── -->
+    <div class="futd-tssh-panel active" id="futdTsshPanelTpsl">
+      <!-- Take Profit -->
+      <div class="futd-tssh-section" style="color:var(--g)">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--g);display:inline-block"></span>Take Profit
+      </div>
+      <div class="futd-tssh-row">
+        <div class="futd-tssh-sel">TP Trigger <span style="font-size:8px;margin-left:2px">▼</span></div>
+        <span>Last</span><span style="font-size:8px">▼</span>
+        <div class="futd-tssh-sel">PnL <span style="font-size:8px;margin-left:2px">▼</span></div>
+        <span>USDT</span><span style="font-size:8px">▼</span>
+      </div>
+      <div class="futd-tssh-inp-wrap">
+        <input class="futd-tssh-inp" id="futdTpslTpInp" type="number" placeholder="TP Trigger Price" oninput="futdTsshUpdateHints()">
+        <span class="futd-tssh-inp-unit">USDT <span style="font-size:8px">▼</span></span>
+      </div>
+      <span class="futd-tssh-live-pnl" id="futdTsshTpLivePnl"></span>
+      <div class="futd-tssh-hint" id="futdTpslTpHint">เมื่อ <b>Last Price</b> ถึง <b id="futdTsshTpHintPrice">—</b> จะทริกเกอร์ TP Market และปิด Position PnL ≈ <b id="futdTsshTpHintPnl">—</b></div>
+      <div class="futd-tssh-divider"></div>
+      <!-- Stop Loss -->
+      <div class="futd-tssh-section" style="color:var(--r)">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--r);display:inline-block"></span>Stop Loss
+      </div>
+      <div class="futd-tssh-row">
+        <div class="futd-tssh-sel">SL Trigger <span style="font-size:8px;margin-left:2px">▼</span></div>
+        <span>Last</span><span style="font-size:8px">▼</span>
+        <div class="futd-tssh-sel">PnL <span style="font-size:8px;margin-left:2px">▼</span></div>
+        <span>USDT</span><span style="font-size:8px">▼</span>
+      </div>
+      <div class="futd-tssh-inp-wrap">
+        <input class="futd-tssh-inp" id="futdTpslSlInp" type="number" placeholder="Stop Loss Price" oninput="futdTsshUpdateHints()">
+        <span class="futd-tssh-inp-unit">USDT <span style="font-size:8px">▼</span></span>
+      </div>
+      <span class="futd-tssh-live-pnl" id="futdTsshSlLivePnl"></span>
+      <div class="futd-tssh-hint" id="futdTpslSlHint">เมื่อ <b>Last Price</b> ถึง <b id="futdTsshSlHintPrice">—</b> จะทริกเกอร์ SL Market และปิด Position PnL ≈ <b id="futdTsshSlHintPnl">—</b></div>
+      <div class="futd-tssh-divider"></div>
+      <!-- Amount -->
+      <div class="futd-tssh-amt-row">
+        <div class="futd-tssh-amt-label">Amount</div>
+        <div class="futd-tssh-amt-full">
+          <span id="futdTsshAmtPct">100% (≈—)</span>
+          <span style="color:var(--t2);font-size:12px" id="futdTsshAmtCoin">—</span>
+        </div>
+        <input type="range" class="pct-slider" id="futdTsshAmtSlider" min="0" max="100" value="100"
+               style="width:100%;margin-top:4px" oninput="futdTsshOnAmtSlider(this)">
+        <div class="tssh-slider-marks">
+          <div class="tssh-mark" onclick="futdTsshSetAmtSlider(0)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetAmtSlider(25)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetAmtSlider(50)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetAmtSlider(75)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetAmtSlider(100)"></div>
+        </div>
+        <div style="font-size:11px;color:var(--t3);margin-top:6px">Position Amount <span id="futdTsshPosAmt">—</span></div>
+      </div>
+      <div class="futd-tssh-liq-note">
+        Liq. Price: <span style="font-family:var(--mono);font-weight:700" id="futdTsshLiqNote">—</span> — SL ควรอยู่ห่างจาก Liq. Price เสมอ
+      </div>
+      <button class="futd-tssh-confirm-btn" onclick="futdConfirmTpsl()">Confirm</button>
+      <div onclick="futdCloseTpslSheet()" style="text-align:center;padding:10px 0 6px;font-size:13px;color:var(--t2);cursor:pointer">ยกเลิก</div>
+    </div>
+
+    <!-- ── TAB 2: Position TP/SL ── -->
+    <div class="futd-tssh-panel" id="futdTsshPanelPosition">
+      <div class="futd-tssh-section" style="justify-content:space-between;color:var(--t1)">
+        Take Profit <span style="font-size:11px;font-weight:400;color:var(--t2)">Last <span style="font-size:8px">▼</span></span>
+      </div>
+      <div class="futd-tssh-inp-wrap">
+        <input class="futd-tssh-inp" id="futdTsshPosTpInp" type="number" placeholder="Trigger Price" oninput="futdTsshUpdateHints()">
+        <span class="futd-tssh-inp-unit">USDT</span>
+      </div>
+      <span class="futd-tssh-live-pnl" id="futdTsshPosTpLivePnl"></span>
+      <div class="futd-tssh-hint">เมื่อ <b>Last Price</b> ถึง <b id="futdTsshPosTpHintPrice">—</b> จะทริกเกอร์ Take Profit Market เพื่อปิด Position PnL ≈ <b id="futdTsshPosTpHintPnl">—</b></div>
+      <div class="futd-tssh-divider"></div>
+      <div class="futd-tssh-section" style="justify-content:space-between;color:var(--t1)">
+        Stop Loss <span style="font-size:11px;font-weight:400;color:var(--t2)">Last <span style="font-size:8px">▼</span></span>
+      </div>
+      <div class="futd-tssh-inp-wrap">
+        <input class="futd-tssh-inp" id="futdTsshPosSlInp" type="number" placeholder="Trigger Price" oninput="futdTsshUpdateHints()">
+        <span class="futd-tssh-inp-unit">USDT</span>
+      </div>
+      <span class="futd-tssh-live-pnl" id="futdTsshPosSlLivePnl"></span>
+      <div class="futd-tssh-hint">เมื่อ <b>Last Price</b> ถึง <b id="futdTsshPosSlHintPrice">—</b> จะทริกเกอร์ Stop Market เพื่อปิด Position PnL ≈ <b id="futdTsshPosSlHintPnl">—</b></div>
+      <div class="futd-tssh-divider"></div>
+      <div class="futd-tssh-liq-note">
+        Liq. Price: <span style="font-family:var(--mono);font-weight:700" id="futdTsshLiqNotePosTab">—</span> — SL ควรอยู่ห่างจาก Liq. Price เสมอ
+      </div>
+      <button class="futd-tssh-confirm-btn" onclick="futdConfirmTpslFromPositionTab()">Confirm</button>
+      <div onclick="futdCloseTpslSheet()" style="text-align:center;padding:10px 0 6px;font-size:13px;color:var(--t2);cursor:pointer">ยกเลิก</div>
+    </div>
+
+    <!-- ── TAB 3: Trailing Stop ── -->
+    <div class="futd-tssh-panel" id="futdTsshPanelTrailing">
+      <div class="futd-tssh-amt-label" style="margin-bottom:6px">Callback Ratio</div>
+      <div class="futd-tssh-inp-wrap" style="margin-bottom:8px">
+        <input class="futd-tssh-inp" id="futdTsshCbInp" type="number" placeholder="" step="0.1" min="0.1" max="10">
+        <span class="futd-tssh-inp-unit">%</span>
+      </div>
+      <div class="futd-tssh-cb-row">
+        <div class="futd-tssh-cb-btn" onclick="futdTsshSetCb(this,1)">1%</div>
+        <div class="futd-tssh-cb-btn" onclick="futdTsshSetCb(this,5)">5%</div>
+        <div class="futd-tssh-cb-btn" onclick="futdTsshSetCb(this,10)">10%</div>
+      </div>
+      <div class="futd-tssh-divider"></div>
+      <div class="futd-tssh-amt-row">
+        <div class="futd-tssh-amt-label">Amount</div>
+        <div class="futd-tssh-amt-full">
+          <span id="futdTsshTrailAmtPct">100% (≈—)</span>
+          <span style="color:var(--t2);font-size:12px" id="futdTsshTrailAmtCoin">—</span>
+        </div>
+        <input type="range" class="pct-slider" id="futdTsshTrailSlider" min="0" max="100" value="100"
+               style="width:100%;margin-top:4px" oninput="futdTsshOnTrailSlider(this)">
+        <div class="tssh-slider-marks">
+          <div class="tssh-mark" onclick="futdTsshSetTrailSlider(0)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetTrailSlider(25)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetTrailSlider(50)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetTrailSlider(75)"></div>
+          <div class="tssh-mark" onclick="futdTsshSetTrailSlider(100)"></div>
+        </div>
+        <div style="font-size:11px;color:var(--t3);margin-top:6px">Position Amount <span id="futdTsshTrailPosAmt">—</span></div>
+      </div>
+      <div class="futd-tssh-divider"></div>
+      <button class="futd-tssh-confirm-btn" onclick="futdConfirmTrailingStop()">Confirm</button>
+      <div onclick="futdCloseTpslSheet()" style="text-align:center;padding:10px 0 6px;font-size:13px;color:var(--t2);cursor:pointer">ยกเลิก</div>
+    </div>
+
+    <div style="height:20px"></div>
+  </div>
+</div><!-- /futdTpslSheet -->
+
+<!-- ════ [v2.53] FUTURES-DIRECT: Adjust Margin Sheet (Isolated only) ════ -->
+<style>
+/* Adjust Margin Sheet */
+#futdMarginSheet{position:fixed;inset:0;z-index:1050;pointer-events:none}
+#futdMarginSheet.open{pointer-events:all}
+#futdMarginBg{position:absolute;inset:0;background:rgba(0,0,0,.55);opacity:0;transition:opacity .3s}
+#futdMarginSheet.open #futdMarginBg{opacity:1}
+#futdMarginPanel{
+  position:absolute;bottom:0;left:50%;transform:translateX(-50%) translateY(100%);
+  width:100%;max-width:480px;
+  background:var(--bg2);border-radius:16px 16px 0 0;
+  transition:transform .35s cubic-bezier(.32,1,.23,1);
+  max-height:80vh;overflow-y:auto;
+}
+#futdMarginSheet.open #futdMarginPanel{transform:translateX(-50%) translateY(0)}
+.futd-mg-tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:14px}
+.futd-mg-tab{flex:1;padding:10px 0;text-align:center;font-size:13px;font-weight:600;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.futd-mg-tab.active{color:var(--y);border-bottom-color:var(--y)}
+.futd-mg-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px 14px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.futd-mg-info-item{display:flex;flex-direction:column;gap:2px}
+.futd-mg-info-item span:first-child{font-size:10px;color:var(--t3)}
+.futd-mg-info-item span:last-child{font-size:12px;font-family:var(--mono);font-weight:600;color:var(--t1)}
+</style>
+<div id="futdMarginSheet">
+  <div id="futdMarginBg" onclick="futdCloseMarginSheet()"></div>
+  <div id="futdMarginPanel">
+    <div style="width:36px;height:4px;background:var(--bl);border-radius:2px;margin:10px auto 6px"></div>
+    <div style="font-size:16px;font-weight:700;padding:4px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <span>ปรับ Margin</span>
+      <span style="font-size:11px;background:rgba(240,185,11,.15);color:var(--y);border:1px solid rgba(240,185,11,.3);border-radius:4px;padding:2px 8px" id="futdMgSym">—</span>
+    </div>
+
+    <!-- Add / Remove tabs -->
+    <div class="futd-mg-tabs">
+      <div class="futd-mg-tab active" id="futdMgTabAdd" onclick="futdMgSetTab('add')">➕ เพิ่ม Margin</div>
+      <div class="futd-mg-tab" id="futdMgTabRem" onclick="futdMgSetTab('remove')">➖ ลด Margin</div>
+    </div>
+
+    <!-- Info grid -->
+    <div class="futd-mg-info-grid">
+      <div class="futd-mg-info-item">
+        <span>Margin ปัจจุบัน</span>
+        <span id="futdMgCurMargin">—</span>
+      </div>
+      <div class="futd-mg-info-item">
+        <span>Liq. Price</span>
+        <span style="color:var(--r)" id="futdMgLiq">—</span>
+      </div>
+      <div class="futd-mg-info-item">
+        <span>Avail. Margin</span>
+        <span style="color:var(--g)" id="futdMgAvail">—</span>
+      </div>
+      <div class="futd-mg-info-item">
+        <span>Effective Lev</span>
+        <span id="futdMgEffLev">—</span>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div style="padding:0 16px 14px">
+      <div style="font-size:11px;color:var(--t3);margin-bottom:6px" id="futdMgHint">เพิ่ม Margin → Liq. Price ห่างขึ้น (ความเสี่ยงลดลง)</div>
+      <div style="display:flex;align-items:center;background:var(--bg3);border:1px solid var(--bl);border-radius:6px;padding:0 10px;height:44px;margin-bottom:12px">
+        <input id="futdMgAmtInp" type="number" placeholder="จำนวน USDT" min="1" step="1"
+               style="flex:1;background:transparent;border:none;outline:none;color:var(--t1);font-size:14px;font-family:var(--mono)">
+        <span style="font-size:11px;color:var(--t2);font-weight:600">USDT</span>
+      </div>
+      <!-- Quick amount buttons -->
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <div onclick="document.getElementById('futdMgAmtInp').value=10" style="flex:1;padding:5px 0;text-align:center;background:var(--bg3);border:1px solid var(--bl);border-radius:4px;font-size:11px;color:var(--t2);cursor:pointer">+10</div>
+        <div onclick="document.getElementById('futdMgAmtInp').value=50" style="flex:1;padding:5px 0;text-align:center;background:var(--bg3);border:1px solid var(--bl);border-radius:4px;font-size:11px;color:var(--t2);cursor:pointer">+50</div>
+        <div onclick="document.getElementById('futdMgAmtInp').value=100" style="flex:1;padding:5px 0;text-align:center;background:var(--bg3);border:1px solid var(--bl);border-radius:4px;font-size:11px;color:var(--t2);cursor:pointer">+100</div>
+        <div onclick="document.getElementById('futdMgAmtInp').value=parseFloat(document.getElementById('futdMgAvail').textContent)||0" style="flex:1;padding:5px 0;text-align:center;background:var(--bg3);border:1px solid var(--bl);border-radius:4px;font-size:11px;color:var(--y);cursor:pointer">Max</div>
+      </div>
+      <!-- Confirm button -->
+      <button id="futdMgConfirmBtn" onclick="futdConfirmMarginAdj()"
+              style="display:block;width:100%;padding:14px 0;background:var(--y);color:#000;font-size:15px;font-weight:700;border:none;border-radius:8px;cursor:pointer">ยืนยัน</button>
+      <div onclick="futdCloseMarginSheet()" style="text-align:center;padding:12px 0 4px;font-size:13px;color:var(--t2);cursor:pointer">ยกเลิก</div>
+    </div>
+    <div style="height:20px"></div>
+  </div>
+</div><!-- /futdMarginSheet -->
 
 <!-- ════════════════════════════════
      PAGE: PROFILE
@@ -12513,10 +13110,12 @@ function confirmTpsl(tab) {
 //  NAVIGATION SYSTEM
 // ═══════════════════════════════════════════════
 let currentPage = 'trade';
-const PAGE_IDS = { home:'home', whale:'whale', markets:'markets', trade:'trade', futures:'futures', assets:'assets', profile:'profile', 'account-info':'account-info', verification:'verification', termcondition:'termcondition', loan:'loan', 'loan-flexible':'loan-flexible', 'futures-direct':'futures-direct' };
+const PAGE_IDS = { home:'home', whale:'whale', markets:'markets', trade:'trade', futures:'futures', assets:'assets', profile:'profile', 'account-info':'account-info', verification:'verification', termcondition:'termcondition', loan:'loan', 'loan-flexible':'loan-flexible' };
+// [v2.49-TAB] 'futures-direct' ถูกรวมเป็น sub-tab ของ page-futures แล้ว — ไม่ต้องอยู่ใน PAGE_IDS อีก
 
 // ── Sub-pages that don't appear in bottom nav (no ni-xxx) ──
-const PAGE_NAV_KEY = { 'account-info':'home', 'verification':'home', 'profile':'home', 'termcondition':'home', 'loan':'home', 'loan-flexible':'home', 'futures-direct':'assets' };
+const PAGE_NAV_KEY = { 'account-info':'home', 'verification':'home', 'profile':'home', 'termcondition':'home', 'loan':'home', 'loan-flexible':'home' };
+// [v2.49-TAB] 'futures-direct':'assets' ถูกลบออก — futures-direct เป็น sub-tab ของ page-futures
 
 function navTo(page) {
   const target = PAGE_IDS[page] || page;
@@ -12575,17 +13174,34 @@ function navTo(page) {
     _syncAllProfilePages();
   }
 
-  const futPanel = document.getElementById('futuresChartPanel');
-  const spPanel  = document.getElementById('spChartArea');
-  if (futPanel) futPanel.style.display = (target === 'futures') ? '' : 'none';
-  if (spPanel)  spPanel.style.display  = (target === 'trade')   ? '' : 'none';
+  // [v2.49-TAB] futuresChartPanel แสดงตาม active tab ของ page-futures
+  // futdChartPanel แสดงเมื่อ futures + direct tab เท่านั้น
+  const futPanel  = document.getElementById('futuresChartPanel');
+  const futdPanel = document.getElementById('futdChartPanel');
+  const spPanel   = document.getElementById('spChartArea');
+  if (target === 'futures') {
+    const _activeTab = (typeof _futActiveTab !== 'undefined') ? _futActiveTab : 'contract';
+    if (futPanel)  futPanel.style.display  = (_activeTab === 'contract') ? '' : 'none';
+    if (futdPanel) {
+      // [v2.53 FIX-CHART-RESTORE] กลับจากหน้าอื่น → ถ้า tab ปัจจุบันเป็น direct ต้อง re-init กราฟ
+      // (navTo ก่อนหน้าตั้ง display:none + classList.remove('active') ไว้)
+      if (_activeTab === 'direct') {
+        futdPanel.style.display = '';
+        if (typeof futdChartInit === 'function') futdChartInit();
+      }
+    }
+    if (spPanel)   spPanel.style.display   = 'none';
+  } else {
+    if (futPanel)  futPanel.style.display  = 'none';
+    if (futdPanel) futdPanel.style.display = 'none';
+    if (spPanel)   spPanel.style.display   = (target === 'trade') ? '' : 'none';
+  }
 
   if (target === 'home')    { if (typeof _homeInit === 'function') _homeInit(); else console.warn('[navTo] _homeInit not ready yet'); }
   if (target === 'markets' && !mktLoaded) loadMarketData();
   if (target === 'trade')   { loadSpotData(); }
-  // [FUTURES-DIRECT v1] — เพิ่ม branch ใหม่เฉยๆ ไม่แก้ของเดิมด้านบน/ล่างเลย
-  if (target === 'futures-direct') { if (typeof futdInit === 'function') futdInit(); }
-  else { if (typeof futdStopPolling === 'function') futdStopPolling(); }
+  // [v2.49-TAB] futures-direct ไม่มี page แยกแล้ว — futdInit/futdStopPolling จัดการใน futSwitchTab
+  if (target !== 'futures') { if (typeof futdStopPolling === 'function') futdStopPolling(); }
   if (target === 'futures') requestAnimationFrame(() => requestAnimationFrame(() => {
     drawChart();
     // ── sync levBtn + goldLevNote ตาม S.coin ปัจจุบันทุกครั้งที่เข้าหน้า futures ──
@@ -12622,6 +13238,73 @@ function navTo(page) {
   }
   // เมื่อเข้าแอปหลักครั้งแรกหลัง login → โหลด member จาก session
   if (typeof USER_PROFILE !== 'undefined' && !USER_PROFILE._memberLoaded) autoLoginFromMembers();
+}
+
+// ═══════════════════════════════════════════════
+//  [v2.49-TAB] FUTURES TAB SWITCHER
+//  futSwitchTab(tab) — 'contract' | 'direct'
+//  เรียกจาก Tab Bar onclick และจาก navTo('futures-direct') redirect
+// ═══════════════════════════════════════════════
+let _futActiveTab = 'contract'; // track tab ปัจจุบัน
+
+function futSwitchTab(tab) {
+  _futActiveTab = tab;
+
+  // ── Toggle tab content ──
+  const tabContract = document.getElementById('fut-tab-contract');
+  const tabDirect   = document.getElementById('fut-tab-direct');
+  if (tabContract) tabContract.classList.toggle('active', tab === 'contract');
+  if (tabDirect)   tabDirect.classList.toggle('active',   tab === 'direct');
+
+  // ── Toggle tab button highlight ──
+  const btnContract = document.getElementById('futTabBtnContract');
+  const btnDirect   = document.getElementById('futTabBtnDirect');
+  if (btnContract) btnContract.classList.toggle('active', tab === 'contract');
+  if (btnDirect)   btnDirect.classList.toggle('active',   tab === 'direct');
+
+  // ── Chart panels: แสดง/ซ่อนตาม tab ──
+  const futPanel  = document.getElementById('futuresChartPanel');
+  const futdPanel = document.getElementById('futdChartPanel');
+
+  if (tab === 'contract') {
+    // เข้า Contract tab → หยุด Direct polling, แสดง Contract chart (ถ้า open)
+    if (typeof futdStopPolling === 'function') futdStopPolling();
+    if (futPanel)  futPanel.style.display  = '';  // จะซ่อน/แสดงเองตาม CHART_PANELS.fut.open
+    if (futdPanel) futdPanel.style.display = 'none';
+    // redraw contract chart
+    requestAnimationFrame(() => {
+      if (typeof drawChart === 'function') drawChart();
+    });
+  } else {
+    // เข้า Direct tab → ซ่อน Contract chart, init Direct
+    if (futPanel)  futPanel.style.display  = 'none';
+    // [FIX-CHART-DISPLAY] ล้าง inline display:none ก่อน futdInit() เพื่อให้ CSS .active มีผล
+    if (futdPanel) futdPanel.style.display = '';
+    if (typeof futdInit === 'function') futdInit();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  [v2.50] Direct Tab — Symbol Change from Topbar coin selector
+//  เมื่อ user เปลี่ยน coin ที่ topbar ขณะอยู่ใน Direct tab
+//  ต้องเรียก futdOnSymbolChange() แต่ไม่มี futd-symbol select แล้ว
+// ════════════════════════════════════════════════════════════════
+function futdSyncCoinFromTopbar(coin) {
+  if (!coin) return;
+  FUTD.symbolCoin = coin;
+  futdRefreshPrice();
+  futdChartLoad();
+  futdStartOrderBook();
+  // [v2.51] re-fetch funding rate เมื่อเปลี่ยนเหรียญ
+  if (typeof futdFetchFunding === 'function') futdFetchFunding();
+  // อัปเดต unit label
+  const unitEl = document.getElementById('futdObAmtUnit');
+  if (unitEl) unitEl.textContent = '(' + coin + ')';
+  const amtUnitEl = document.getElementById('futdAmtUnit');
+  if (amtUnitEl && FUTD.amtUnit !== 'USDT') {
+    FUTD.amtUnit = coin;
+    amtUnitEl.textContent = coin;
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -35485,37 +36168,121 @@ function aftdRenderDirectPosList(positions) {
     el.innerHTML = '<div class="aft-empty"><div class="aft-empty-icon">📭</div>' +
       '<div class="aft-empty-title">ยังไม่มี Position ที่เปิดอยู่</div>' +
       '<div class="aft-empty-sub">โหมด Futures-Direct ไม่มีประกันทุน (ไม่มี DD/Freeze)</div>' +
-      '<button class="aft-empty-btn" onclick="navTo(\'futures-direct\')">เริ่มเทรด</button></div>';
+      '<button class="aft-empty-btn" onclick="navTo(\'futures\');requestAnimationFrame(()=>futSwitchTab(\'direct\'))">เริ่มเทรด</button></div>';
     return;
   }
+  // [FIX-POS-ASSETS] แสดง layout เหมือนหน้า Futures → ⚡ Direct (futdRenderPositions)
+  const bal         = parseFloat((FUTD.status || {}).futures_balance) || 0;
+  const marginUsed  = parseFloat((FUTD.status || {}).margin_used)     || 0;
+  const mrPctGlobal = bal > 0 ? Math.min(100, (marginUsed / bal) * 100) : 0;
+
   el.innerHTML = positions.map(p => {
-    const pnl = parseFloat(p.realized_pnl) || 0;
-    return `<div class="aft-pos-card" onclick="navTo('futures-direct')">
-      <div class="aft-pos-card-header">
-        <div class="aft-pos-symbol-row">
-          <span class="aft-pos-sym">${p.symbol}</span>
-          <span class="aft-pos-side-lev ${p.side}">${p.side === 'long' ? 'LONG' : 'SHORT'} ${p.lev}x</span>
+    const coin   = (p.symbol || '').replace('USDT', '');
+    const entryP = parseFloat(p.entry_price) || 0;
+    const size   = parseFloat(p.size)        || 0;
+    const margin = parseFloat(p.margin)      || 0;
+    const liqP   = parseFloat(p.liq_price)   || 0;
+    const markP  = (FUTD.prices && FUTD.prices[coin]) || 0;
+
+    let upnl = 0;
+    if (markP > 0 && entryP > 0 && size > 0) {
+      upnl = p.side === 'long' ? (markP - entryP) * size : (entryP - markP) * size;
+    }
+    const upnlColor = upnl >= 0 ? 'var(--g)' : 'var(--r)';
+    const roiPct    = margin > 0 ? ((upnl / margin) * 100) : 0;
+    const mrColor   = mrPctGlobal < 50 ? 'var(--g)' : mrPctGlobal < 80 ? 'var(--y)' : 'var(--r)';
+
+    const tp = parseFloat(p.tp) || 0;
+    const sl = parseFloat(p.sl) || 0;
+    const tpChip = tp > 0
+      ? `<span class="futd-tpsl-chip tp">TP: ${tp.toLocaleString('en',{maximumFractionDigits:4})}</span>`
+      : `<span class="futd-tpsl-chip none">TP: —</span>`;
+    const slChip = sl > 0
+      ? `<span class="futd-tpsl-chip sl">SL: ${sl.toLocaleString('en',{maximumFractionDigits:4})}</span>`
+      : `<span class="futd-tpsl-chip none">SL: —</span>`;
+
+    const markStr = markP > 0 ? markP.toLocaleString('en',{maximumFractionDigits:4}) : '—';
+    const liqStr  = liqP  > 0 ? liqP.toLocaleString('en',{maximumFractionDigits:4})  : '—';
+    const goDirect = `navTo('futures');requestAnimationFrame(()=>futSwitchTab('direct'))`;
+
+    return `<div class="futd-pos-row" style="margin:8px 12px" onclick="${goDirect}">
+      <div class="futd-pos-top">
+        <div>
+          <span class="futd-pos-sym">${p.symbol}</span>
+          <span class="futd-pos-side ${p.side}">${p.side === 'long' ? 'LONG' : 'SHORT'} x${p.lev}</span>
         </div>
-        <div class="aft-pos-pnl-blk">
-          <div class="aft-pos-pnl-lbl">Margin</div>
-          <div class="aft-pos-pnl-val">${(parseFloat(p.margin)||0).toFixed(2)}</div>
+        <div style="text-align:right">
+          <div class="futd-pos-pnl" style="color:${upnlColor}">${upnl >= 0 ? '+' : ''}${upnl.toFixed(2)} USDT</div>
+          <div class="futd-pos-roi" style="color:${upnlColor}">${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%</div>
         </div>
       </div>
-      <div class="aft-pos-grid">
-        <div class="aft-pg-item"><div class="aft-pg-lbl">Entry</div><div class="aft-pg-val">${p.entry_price}</div></div>
-        <div class="aft-pg-item"><div class="aft-pg-lbl">Liq. Price</div><div class="aft-pg-val warn">${p.liq_price}</div></div>
-        <div class="aft-pg-item"><div class="aft-pg-lbl">PNL</div><div class="aft-pg-val">${pnl.toFixed(2)}</div></div>
+      <div class="futd-pos-detail">
+        <div>Size (${coin})<b>${size}</b></div>
+        <div>Margin (USDT)<b>${margin.toFixed(2)} (≈$${margin.toFixed(2)})</b></div>
+        <div>Margin Ratio<b style="color:${mrColor}">${mrPctGlobal.toFixed(1)}%</b></div>
+      </div>
+      <div class="futd-pos-detail2">
+        <div>Avg Entry<b>${entryP.toLocaleString('en',{maximumFractionDigits:4})}</b></div>
+        <div>Mark Price<b>${markStr}</b></div>
+        <div>Liq. Price<b style="color:var(--r)">${liqStr}</b></div>
+      </div>
+      <div class="futd-mr-bar-wrap">
+        <div class="futd-mr-label"><span>Margin Ratio</span><span style="color:${mrColor}">${mrPctGlobal.toFixed(1)}%</span></div>
+        <div class="futd-mr-bar-bg"><div class="futd-mr-bar-fill" style="width:${mrPctGlobal.toFixed(1)}%;background:${mrColor}"></div></div>
+      </div>
+      <div class="futd-pos-tpsl-row" style="display:flex;gap:6px;margin-bottom:8px">${tpChip}${slChip}</div>
+      <div class="futd-pos-actions" onclick="event.stopPropagation()">
+        <div class="futd-btn-sm" onclick="${goDirect}">Leverage</div>
+        <div class="futd-btn-sm warn" onclick="${goDirect}">TP/SL</div>
+        <div class="futd-btn-sm danger" onclick="${goDirect}">Close</div>
       </div>
     </div>`;
   }).join('');
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  FUTURES-DIRECT: State
+// ══════════════════════════════════════════════════════════════════
 const FUTD = {
   side: 'long',
-  symbolCoin: 'BTC',
-  lastPrice: 0,
+  symbolCoin: 'BTC',       // เหรียญที่เลือกในฟอร์ม
+  lastPrice: 0,            // ราคาล่าสุดของเหรียญที่เลือก
+  prices: {},              // map coin → price สำหรับทุก position ที่เปิดอยู่
   pollTimer: null,
-  status: null, // ผลล่าสุดจาก getFuturesAccountStatus
+  _astInFlight: false,     // [v2.52 FIX-POLL-LOCK] in-flight guard สำหรับ futdRefreshAccountStatus
+  status: null,            // ผลล่าสุดจาก getFuturesAccountStatus
+  // [v2.50] New layout state
+  oc: 'open',              // 'open' | 'close'
+  lev: 50,                 // leverage ปัจจุบัน
+  levIdx: 3,               // index ใน levCycleDirect
+  orderType: 'Limit',      // 'Limit' | 'Market'
+  tpslOn: false,           // TP/SL toggle
+  amtUnit: 'BTC',          // unit ของ amount input
+  hideOtherPairs: true,
+  subTab: 'pos',           // 'pos' | 'ord'
+  marginMode: 'cross',     // [v2.53] 'cross' | 'isolated' — ผู้ใช้เลือกก่อน open position
+  obWs: null,              // WebSocket สำหรับ L2 orderbook
+  asks: [],                // order book asks (Direct)
+  bids: [],                // order book bids (Direct)
+  // Chart state
+  chart: {
+    tf: '5m',
+    candles: [],
+    open: true,
+    wrapH: 180,
+    indicator: null,       // 'RSI' | 'MACD' | 'BB' | 'EMA' | null
+    viewStart: null,
+    visCount: 80,
+    drawTimer: null,
+  },
+  // TP/SL sheet state
+  tpslPosId: null,
+  // [v2.51] Funding rate state (mirror of S.funding for Direct tab)
+  funding: {
+    rate: 0.01,        // % (เช่น 0.01 = 0.01%)
+    countdown: '--:--:--',
+  },
+  fundingTimer: null,  // setInterval handle สำหรับ countdown
 };
 
 function _futdCurrentUid() {
@@ -35524,103 +36291,762 @@ function _futdCurrentUid() {
        : ((typeof USER_PROFILE !== 'undefined' && USER_PROFILE.uid) ? String(USER_PROFILE.uid).trim() : '');
 }
 
+// ── Init / Stop ──────────────────────────────────────────────────
 /** เรียกตอนเข้าหน้า Futures-Direct (จาก navTo) */
 function futdInit() {
-  futdSetSide('long');
+  // [v2.50] Init new layout elements
+  futdSetOC('open');
+  futdUpdateLevBtn();
+  futdUpdateOrderTypeUI();
+  futdUpdateTradeBtnLabels();
+  futdSwitchSubTab('pos');
+  if (typeof futdUpdateMarginModeBtn === 'function') futdUpdateMarginModeBtn(); // [v2.53]
+
   futdRefreshAccountStatus();
   futdRefreshPrice();
   futdStopPolling();
-  // เช็คราคา + สถานะบัญชีทุก 5 วิ ระหว่างอยู่หน้านี้ (แยกจาก engine ฝั่ง GAS ที่รันทุก 1 นาที —
-  // นี่แค่ทำให้ UI ดูสดขึ้นเฉยๆ ไม่ใช่ตัวตัดสิน TP/SL/Liq จริง — ตัวจริงอยู่ที่ processFuturesTpSl)
+  futdChartInit();
+
+  // เริ่ม Order Book WebSocket สำหรับ Direct tab
+  futdStartOrderBook();
+
+  // [v2.51] เริ่ม Funding rate + Countdown timer
+  futdFetchFunding();
+  futdStartFundingTimer();
+
+  // [v2.52 FIX-POLL-LOCK] poll ราคา + สถานะ
+  // เพิ่ม interval 5s → 15s: dbCallRaw timeout=20s — ถ้า 5s request ก่อนยังไม่เสร็จ
+  // request ใหม่ซ้อนกัน 4 ชั้น → timeout storm (เหมือนบั๊ก _astRefreshBalanceIfStale เดิม)
+  // 15s > 1 GAS cold-start cycle (10-12s) → request ก่อนน่าจะเสร็จแล้วก่อน poll รอบถัดไป
   FUTD.pollTimer = setInterval(() => {
     futdRefreshPrice();
-    futdRefreshAccountStatus();
-  }, 5000);
+    // [FIX-POLL-LOCK] in-flight guard — skip ถ้า request ก่อนยังไม่เสร็จ
+    if (!FUTD._astInFlight) futdRefreshAccountStatus();
+  }, 15000);
 }
 
 function futdStopPolling() {
   if (FUTD.pollTimer) { clearInterval(FUTD.pollTimer); FUTD.pollTimer = null; }
+  // [v2.51] หยุด Funding timer ด้วย
+  if (FUTD.fundingTimer) { clearInterval(FUTD.fundingTimer); FUTD.fundingTimer = null; }
+  futdChartStop();
+  futdStopOrderBook();
 }
 
+// ══════════════════════════════════════════════════════════════
+//  [v2.50] FUTURES-DIRECT — New Layout Functions
+// ══════════════════════════════════════════════════════════════
+
+// ── [v2.51] Funding Rate + Countdown (Direct Tab) ─────────────
+/** ดึง funding rate จาก Hyperliquid สำหรับ Direct tab */
+async function futdFetchFunding() {
+  try {
+    const coin = FUTD.symbolCoin || 'BTC';
+    const d = await hlPost({ type: 'fundingHistory', coin, startTime: Date.now() - 28800000 });
+    if (d && d.length) {
+      const latest = d[d.length - 1];
+      FUTD.funding.rate = parseFloat(latest.fundingRate) * 100; // convert to %
+    }
+    futdUpdateFundingVal();
+  } catch(e) {
+    console.warn('[futdFetchFunding] fail:', e.message);
+  }
+}
+
+/** countdown timer — tick ทุกวินาที เหมือน startFundingTimer() ของ Contract tab */
+function futdStartFundingTimer() {
+  if (FUTD.fundingTimer) { clearInterval(FUTD.fundingTimer); FUTD.fundingTimer = null; }
+  function tick() {
+    const now = new Date();
+    const h = now.getUTCHours();
+    const next8h = (Math.floor(h / 8) + 1) * 8;
+    const nextTime = new Date(now);
+    nextTime.setUTCHours(next8h % 24, 0, 0, 0);
+    if (next8h >= 24) nextTime.setUTCDate(nextTime.getUTCDate() + 1);
+    const diff = nextTime - now;
+    const hh = Math.floor(diff / 3600000);
+    const mm = Math.floor((diff % 3600000) / 60000);
+    const ss = Math.floor((diff % 60000) / 1000);
+    FUTD.funding.countdown = String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0') + ':' + String(ss).padStart(2,'0');
+    futdUpdateFundingVal();
+    // re-fetch rate ทุก 8 ชั่วโมงเมื่อข้าม boundary
+    const curFundingHour = Math.floor(h / 8) * 8;
+    if (!FUTD._lastFundingHour) FUTD._lastFundingHour = curFundingHour;
+    if (FUTD._lastFundingHour !== curFundingHour) {
+      FUTD._lastFundingHour = curFundingHour;
+      futdFetchFunding();
+    }
+  }
+  tick();
+  FUTD.fundingTimer = setInterval(tick, 1000);
+}
+
+/** เขียนค่าลง element futdFundingVal */
+function futdUpdateFundingVal() {
+  const el = document.getElementById('futdFundingVal');
+  if (!el) return;
+  const rateStr = (FUTD.funding.rate || 0).toFixed(5) + '%';
+  const cdStr   = FUTD.funding.countdown || '--:--:--';
+  el.textContent = rateStr + '/' + cdStr;
+  // สีตาม rate: บวก = เขียว, ลบ = แดง (Long จ่าย Short รับ เมื่อ rate บวก)
+  el.style.color = FUTD.funding.rate >= 0 ? 'var(--g)' : 'var(--r)';
+}
+
+// ── Leverage cycle (Direct: 5x–150x) ──────────────────────────
+const levCycleDirect = [5, 10, 25, 50, 75, 100, 125, 150];
+
+function futdCycleLev() {
+  FUTD.levIdx = (FUTD.levIdx + 1) % levCycleDirect.length;
+  FUTD.lev = levCycleDirect[FUTD.levIdx];
+  futdUpdateLevBtn();
+  showToast('Leverage: ' + FUTD.lev + 'x');
+  futdUpdateMaxCost();
+}
+
+function futdUpdateLevBtn() {
+  const btn = document.getElementById('futdLevBtn');
+  if (btn) btn.textContent = FUTD.lev + 'x';
+}
+
+// ── Open/Close toggle ─────────────────────────────────────────
+function futdSetOC(v) {
+  FUTD.oc = v;
+  const btnOpen  = document.getElementById('futdOcOpen');
+  const btnClose = document.getElementById('futdOcClose');
+  if (btnOpen)  btnOpen.className  = 'oc-btn' + (v === 'open'  ? ' active' : '');
+  if (btnClose) btnClose.className = 'oc-btn' + (v === 'close' ? ' active' : '');
+  futdUpdateTradeBtnLabels();
+}
+
+function futdUpdateTradeBtnLabels() {
+  const isClose = FUTD.oc === 'close';
+  const ll = document.getElementById('futdTradeBtnLongLabel');
+  const sl = document.getElementById('futdTradeBtnShortLabel');
+  if (ll) ll.textContent = isClose ? 'Close Short' : 'Open Long';
+  if (sl) sl.textContent = isClose ? 'Close Long'  : 'Open Short';
+}
+
+// ── Side toggle (L/S) ─────────────────────────────────────────
+function futdToggleSide() {
+  FUTD.side = FUTD.side === 'L' ? 'S' : 'L';
+  const btn = document.getElementById('futdSideBtn');
+  if (btn) {
+    btn.textContent = FUTD.side;
+    btn.style.color = FUTD.side === 'L' ? 'var(--g)' : 'var(--r)';
+  }
+}
+
+// ── Order type cycle (Limit / Market) ─────────────────────────
+const futdOrderTypes = ['Limit', 'Market'];
+function futdCycleOrderType() {
+  const idx = futdOrderTypes.indexOf(FUTD.orderType);
+  FUTD.orderType = futdOrderTypes[(idx + 1) % futdOrderTypes.length];
+  futdUpdateOrderTypeUI();
+}
+function futdUpdateOrderTypeUI() {
+  const lbl = document.getElementById('futdOrderTypeLabel');
+  if (lbl) lbl.textContent = FUTD.orderType;
+  const priceRow = document.getElementById('futdLimitPriceRow');
+  if (priceRow) priceRow.style.display = FUTD.orderType === 'Market' ? 'none' : '';
+}
+
+// ── Amount helpers ─────────────────────────────────────────────
+function futdAdjAmt(dir) {
+  const inp = document.getElementById('futd-size');
+  if (!inp) return;
+  const v = parseFloat(inp.value) || 0;
+  const step = FUTD.symbolCoin === 'BTC' ? 0.001 : FUTD.symbolCoin === 'ETH' ? 0.01 : 0.1;
+  inp.value = Math.max(0, v + dir * step).toFixed(step < 0.01 ? 3 : step < 0.1 ? 2 : 1);
+  futdCalcMargin();
+}
+
+function futdAdjPrice(dir) {
+  const inp = document.getElementById('futdLimitPriceInp');
+  if (!inp) return;
+  const v = parseFloat(inp.value) || (FUTD.lastPrice || 0);
+  const step = FUTD.symbolCoin === 'BTC' ? 0.5 : 0.1;
+  inp.value = Math.max(0, v + dir * step).toFixed(1);
+  futdUpdateMaxCost();
+}
+
+function futdToggleAmtUnit() {
+  FUTD.amtUnit = FUTD.amtUnit === 'BTC' ? 'USDT' : FUTD.symbolCoin;
+  const el = document.getElementById('futdAmtUnit');
+  if (el) el.textContent = FUTD.amtUnit;
+}
+
+// ── Slider ────────────────────────────────────────────────────
+function futdOnSlider(el) {
+  const v = parseInt(el.value);
+  el.style.setProperty('--pct', v + '%');
+  const bal = FUTD.status ? (parseFloat(FUTD.status.avail_margin) || 0) : 0;
+  if (bal > 0 && FUTD.lastPrice > 0) {
+    const marginToUse = (v / 100) * bal;
+    const notional = marginToUse * FUTD.lev;
+    const coinAmt  = notional / FUTD.lastPrice;
+    const inp = document.getElementById('futd-size');
+    if (inp) inp.value = coinAmt > 0 ? coinAmt.toFixed(3) : '';
+    futdUpdateMaxCost();
+  }
+}
+
+function futdSetSlider(v) {
+  const sl = document.getElementById('futdPctSlider');
+  if (!sl) return;
+  sl.value = v;
+  sl.style.setProperty('--pct', v + '%');
+  futdOnSlider(sl);
+}
+
+// ── Max / Cost display ────────────────────────────────────────
+function futdUpdateMaxCost() {
+  let price;
+  const priceRaw = parseFloat(document.getElementById('futdLimitPriceInp')?.value);
+  if (FUTD.orderType === 'Market') {
+    price = FUTD.lastPrice;
+  } else if (priceRaw > 0) {
+    price = priceRaw;
+  } else {
+    price = FUTD.lastPrice;
+  }
+  const amt = parseFloat(document.getElementById('futd-size')?.value) || 0;
+  const lev = FUTD.lev;
+  if (price && amt) {
+    const notional = price * amt;
+    const margin   = notional / lev;
+    const coin     = FUTD.symbolCoin || 'BTC';
+    const moEl  = document.getElementById('futdMaxOpen');
+    const cvEl  = document.getElementById('futdCostVal');
+    const mosEl = document.getElementById('futdMaxOpenS');
+    const cvsEl = document.getElementById('futdCostValS');
+    if (moEl)  moEl.textContent  = amt.toFixed(3) + ' ' + coin;
+    if (cvEl)  cvEl.textContent  = margin.toFixed(2) + ' USDT';
+    if (mosEl) mosEl.textContent = amt.toFixed(3) + ' ' + coin;
+    if (cvsEl) cvsEl.textContent = margin.toFixed(2) + ' USDT';
+  }
+}
+
+// ── TP/SL toggle ──────────────────────────────────────────────
+function futdToggleTPSL() {
+  FUTD.tpslOn = !FUTD.tpslOn;
+  const el    = document.getElementById('futdTpslCheck');
+  const panel = document.getElementById('futdTpslPanel');
+  if (el)    el.classList.toggle('on', FUTD.tpslOn);
+  if (panel) panel.style.display = FUTD.tpslOn ? 'flex' : 'none';
+}
+
+// ── fillPrice (OB row click → fill limit price input) ─────────
+function futdFillPrice(p) {
+  const inp = document.getElementById('futdLimitPriceInp');
+  if (inp) { inp.value = p.toFixed(1); futdUpdateMaxCost(); }
+}
+
+// ── Sub-tab: Positions / Open Orders ─────────────────────────
+function futdSwitchSubTab(tab) {
+  FUTD.subTab = tab;
+  const posList = document.getElementById('futd-positions-list');
+  const ordList = document.getElementById('futd-orders-list');
+  const tabPos  = document.getElementById('futdTabPos');
+  const tabOrd  = document.getElementById('futdTabOrd');
+  if (posList) posList.style.display = tab === 'pos' ? '' : 'none';
+  if (ordList) ordList.style.display = tab === 'ord' ? '' : 'none';
+  if (tabPos)  tabPos.classList.toggle('active',  tab === 'pos');
+  if (tabOrd)  tabOrd.classList.toggle('active',  tab === 'ord');
+}
+
+// ── Hide Other Pairs toggle ───────────────────────────────────
+function futdToggleHide() {
+  FUTD.hideOtherPairs = !FUTD.hideOtherPairs;
+  const chk = document.getElementById('futdHideChk');
+  if (chk) chk.classList.toggle('on', FUTD.hideOtherPairs);
+  futdRenderPositions((FUTD.status && FUTD.status.positions) || []);
+}
+
+// ── Close All positions ───────────────────────────────────────
+async function futdCloseAll() {
+  const positions = (FUTD.status && FUTD.status.positions) || [];
+  if (!positions.length) { showToast('ไม่มี Position ที่เปิดอยู่'); return; }
+  if (!confirm('ปิดทุก Position ทันที?')) return;
+  for (const pos of positions) {
+    await futdCloseposition(pos.id);
+  }
+}
+
+// ── Order Book WebSocket (Direct) ─────────────────────────────
+function futdStartOrderBook() {
+  futdStopOrderBook();
+  const coin = FUTD.symbolCoin || 'BTC';
+  const wsCoin = _isMetalCoin(coin) ? (METAL_DEX + ':' + coin) : coin;
+  try {
+    const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
+    FUTD.obWs = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'l2Book', coin: wsCoin } }));
+    };
+    ws.onmessage = (evt) => {
+      try {
+        const d = JSON.parse(evt.data);
+        if (d.channel === 'l2Book' && d.data) {
+          const levels = d.data.levels || [];
+          // levels[0] = bids, levels[1] = asks  (Hyperliquid format)
+          const bids = (levels[0] || []).slice(0, 12).map(x => ({ p: parseFloat(x.px), s: parseFloat(x.sz) }));
+          const asks = (levels[1] || []).slice(0, 12).map(x => ({ p: parseFloat(x.px), s: parseFloat(x.sz) }));
+          FUTD.bids = bids;
+          FUTD.asks = asks;
+          // อัปเดต mark price จาก mid
+          if (bids.length && asks.length) {
+            const mid = (bids[0].p + asks[asks.length - 1].p) / 2;
+            FUTD.lastPrice = mid;
+          }
+          futdRenderOrderBook();
+        }
+      } catch (e) { /* ignore */ }
+    };
+    ws.onerror = () => {};
+    ws.onclose = () => { FUTD.obWs = null; };
+  } catch (e) {
+    console.warn('[futdStartOrderBook] WebSocket init fail:', e.message);
+  }
+}
+
+function futdStopOrderBook() {
+  if (FUTD.obWs) {
+    try { FUTD.obWs.close(); } catch(e) {}
+    FUTD.obWs = null;
+  }
+}
+
+// ── Render Order Book (Direct) ─────────────────────────────────
+function futdRenderOrderBook() {
+  const maxAsk = Math.max(...FUTD.asks.map(a => a.s), 0.001);
+  const maxBid = Math.max(...FUTD.bids.map(b => b.s), 0.001);
+
+  const askList = document.getElementById('futdAskList');
+  if (askList && FUTD.asks.length) {
+    askList.innerHTML = FUTD.asks.map(a => {
+      const pct = Math.min(100, (a.s / maxAsk) * 100);
+      return `<div class="ob-row" onclick="futdFillPrice(${a.p})">
+        <div class="ob-bar ask" style="width:${pct}%"></div>
+        <span class="ob-price ask">${fmtP(a.p)}</span>
+        <span class="ob-amt">${a.s.toFixed(3)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  const bidList = document.getElementById('futdBidList');
+  if (bidList && FUTD.bids.length) {
+    bidList.innerHTML = FUTD.bids.map(b => {
+      const pct = Math.min(100, (b.s / maxBid) * 100);
+      return `<div class="ob-row" onclick="futdFillPrice(${b.p})">
+        <div class="ob-bar bid" style="width:${pct}%"></div>
+        <span class="ob-price bid">${fmtP(b.p)}</span>
+        <span class="ob-amt">${b.s.toFixed(3)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Mid price display
+  const mid  = document.getElementById('futdObMidPrice');
+  const mark = document.getElementById('futdObMarkPrice');
+  if (mid && FUTD.asks.length && FUTD.bids.length) {
+    const midPrice = (FUTD.bids[0].p + FUTD.asks[FUTD.asks.length - 1].p) / 2;
+    mid.textContent = fmtP(midPrice);
+    mid.className = 'ob-mid-price up';
+  }
+  if (mark && FUTD.asks.length && FUTD.bids.length) {
+    const spread = FUTD.asks[FUTD.asks.length - 1].p - FUTD.bids[0].p;
+    mark.textContent = fmtP(FUTD.bids[0].p + spread * 0.5 + spread * 0.1);
+  }
+
+  // Long/Short ratio
+  if (FUTD.asks.length && FUTD.bids.length) {
+    const totalBid = FUTD.bids.reduce((s, b) => s + b.s * b.p, 0);
+    const totalAsk = FUTD.asks.reduce((s, a) => s + a.s * a.p, 0);
+    const total    = totalBid + totalAsk;
+    const bidPct   = total > 0 ? (totalBid / total * 100) : 50;
+    const askPct   = 100 - bidPct;
+    const rFill = document.getElementById('futdObRatioFill');
+    const rL    = document.getElementById('futdObLongR');
+    const rR    = document.getElementById('futdObShortR');
+    if (rFill) rFill.style.width = bidPct.toFixed(2) + '%';
+    if (rL)    rL.textContent    = bidPct.toFixed(2) + '%';
+    if (rR)    rR.textContent    = askPct.toFixed(2) + '%';
+  }
+}
+
+// ── Ticker strip update (Direct) ──────────────────────────────
+/** เรียกได้จาก WebSocket ticker feed หรือ allMids poll */
+function futdUpdateTicker(data) {
+  // data: { mark, high, low, vol }
+  const setSafe = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  if (data.mark  !== undefined) setSafe('futd-tk-mark', fmtP(data.mark));
+  if (data.high  !== undefined) setSafe('futd-tk-high', fmtP(data.high));
+  if (data.low   !== undefined) setSafe('futd-tk-low',  fmtP(data.low));
+  if (data.vol   !== undefined) setSafe('futd-tk-vol',  data.vol);
+}
+
+// ── Balance bar update (Direct) ───────────────────────────────
+function futdUpdateBalanceBar(status) {
+  if (!status) return;
+  const balChip    = document.getElementById('futd-balance-chip');
+  const marginChip = document.getElementById('futd-margin-chip');
+  const avblEl     = document.getElementById('futdAvblVal');
+  const bal        = parseFloat(status.futures_balance) || 0;
+  const marginUsed = parseFloat(status.margin_used)     || 0;
+  const avail      = parseFloat(status.avail_margin)    || 0;
+  if (balChip)    balChip.textContent    = 'Bal: ' + bal.toLocaleString('en', { minimumFractionDigits: 2 }) + ' USDT';
+  if (marginChip) marginChip.textContent = 'Margin: ' + marginUsed.toFixed(2) + ' USDT';
+  if (avblEl)     avblEl.textContent     = avail.toLocaleString('en', { minimumFractionDigits: 2 }) + ' USDT';
+}
+
+// ── futdPlaceOrder: ส่ง order ตรง Hyperliquid (Open หรือ Close) ─
+async function futdPlaceOrder(side) {
+  const uid = _futdCurrentUid();
+  if (!uid) { showToast('กรุณาเข้าสู่ระบบก่อน'); return; }
+
+  if (FUTD.oc === 'close') {
+    // หา position ที่ตรงกับ side ตรงข้าม
+    const positions = (FUTD.status && FUTD.status.positions) || [];
+    const closeSide = side === 'long' ? 'short' : 'long'; // Close Long ต้อง close Short pos
+    const pos = positions.find(p => {
+      const coin = (p.symbol || '').replace('USDT', '');
+      return coin === FUTD.symbolCoin && p.side === closeSide;
+    });
+    if (!pos) { showToast('ไม่มี ' + closeSide.toUpperCase() + ' Position ที่จะปิด'); return; }
+    await futdCloseposition(pos.id);
+    return;
+  }
+
+  // Open mode
+  const size = parseFloat(document.getElementById('futd-size')?.value) || 0;
+  const tp   = parseFloat(document.getElementById('futd-tp')?.value)   || 0;
+  const sl   = parseFloat(document.getElementById('futd-sl')?.value)   || 0;
+
+  if (!size || size <= 0) { showToast('กรุณาระบุ Size'); return; }
+  if (!FUTD.lastPrice)    { showToast('รอราคาตลาดสักครู่แล้วลองใหม่'); return; }
+
+  let entryPrice = FUTD.lastPrice;
+  if (FUTD.orderType === 'Limit') {
+    const priceRaw = parseFloat(document.getElementById('futdLimitPriceInp')?.value);
+    if (priceRaw > 0) entryPrice = priceRaw;
+  }
+
+  try {
+    await dbCallRaw('openFuturesPosition', {
+      uid,
+      symbol: FUTD.symbolCoin + 'USDT',
+      side,
+      lev: FUTD.lev,
+      size,
+      entry_price: entryPrice,
+      mode: FUTD.marginMode || 'cross', // [v2.53] ส่ง mode จริงที่ผู้ใช้เลือก
+      order_type: FUTD.orderType,
+      tp: tp || '',
+      sl: sl || '',
+    });
+    showToast('✅ ' + (FUTD.orderType === 'Limit' ? 'Limit Order' : 'เปิด Position') + ' สำเร็จ');
+    const inp = document.getElementById('futd-size');
+    if (inp) inp.value = '';
+    const tpInp = document.getElementById('futd-tp');
+    if (tpInp) tpInp.value = '';
+    const slInp = document.getElementById('futd-sl');
+    if (slInp) slInp.value = '';
+    futdSetSlider(0);
+    futdRefreshAccountStatus();
+  } catch (e) {
+    showToast('❌ ' + (e.message || 'ส่ง Order ไม่สำเร็จ'));
+  }
+}
+
+// ── Form helpers ─────────────────────────────────────────────────
 function futdOnSymbolChange() {
-  FUTD.symbolCoin = document.getElementById('futd-symbol').value;
+  FUTD.symbolCoin = document.getElementById('futd-symbol')?.value || FUTD.symbolCoin;
   futdRefreshPrice();
+  futdChartLoad();
+  // รีสตาร์ท OB WebSocket ด้วย coin ใหม่
+  futdStartOrderBook();
+  // อัปเดต OB unit label
+  const unitEl = document.getElementById('futdObAmtUnit');
+  if (unitEl) unitEl.textContent = '(' + FUTD.symbolCoin + ')';
 }
 
 function futdSetSide(side) {
   FUTD.side = side;
-  document.getElementById('futd-side-long').classList.toggle('active', side === 'long');
-  document.getElementById('futd-side-short').classList.toggle('active', side === 'short');
-  const btn = document.getElementById('futd-submit-btn');
-  btn.className = 'futd-submit ' + side;
-  btn.textContent = side === 'long' ? 'เปิด Position (Long)' : 'เปิด Position (Short)';
+  // [v2.50] Legacy: compat กับ futd-side-long/short ถ้ายังมีใน DOM
+  const btnLong  = document.getElementById('futd-side-long');
+  const btnShort = document.getElementById('futd-side-short');
+  if (btnLong)  btnLong.classList.toggle('active',  side === 'long');
+  if (btnShort) btnShort.classList.toggle('active', side === 'short');
+  // [v2.50] Legacy submit btn
+  const subBtn = document.getElementById('futd-submit-btn');
+  if (subBtn) {
+    subBtn.className  = 'futd-submit ' + side;
+    subBtn.textContent = side === 'long' ? 'เปิด Position (Long)' : 'เปิด Position (Short)';
+  }
+  // [v2.50] New layout — ไม่มี dedicated side buttons, side ถูกกำหนดผ่านปุ่ม Long/Short trade buttons
   futdCalcMargin();
 }
 
-/** ดึงราคาล่าสุดจาก Hyperliquid ผ่าน hlPost ที่มีอยู่แล้วในระบบ (ไม่สร้าง fetch logic ใหม่) */
+// ── Price ────────────────────────────────────────────────────────
+/** ดึงราคาทุกเหรียญที่ต้องการ (form symbol + ทุก position ที่เปิดอยู่) */
 async function futdRefreshPrice() {
   try {
     const mids = await hlPost({ type: 'allMids' });
-    const price = parseFloat(mids[FUTD.symbolCoin]) || 0;
+    // เก็บราคาทุกเหรียญใน map
+    FUTD.prices = {};
+    Object.keys(mids).forEach(k => { FUTD.prices[k] = parseFloat(mids[k]) || 0; });
+
+    // อัปเดตราคาเหรียญที่เลือกในฟอร์ม
+    const price = FUTD.prices[FUTD.symbolCoin] || 0;
     FUTD.lastPrice = price;
+
+    // [v2.50] อัปเดต ticker strip — mark price
+    const tkMark = document.getElementById('futd-tk-mark');
+    if (tkMark && price > 0) tkMark.textContent = fmtP(price);
+
+    // Legacy: futd-mkprice element (ถ้ายังมีอยู่)
     const el = document.getElementById('futd-mkprice');
     if (el) el.textContent = price > 0 ? ('ราคาตลาด: ' + price.toLocaleString('en', { maximumFractionDigits: 4 })) : 'ราคาตลาด: —';
+
     futdCalcMargin();
+    // [v2.50] อัปเดต max/cost
+    if (typeof futdUpdateMaxCost === 'function') futdUpdateMaxCost();
+
+    // อัปเดต PnL realtime บน position cards ที่แสดงอยู่ (ถ้ามี status)
+    if (FUTD.status) futdUpdatePnlCards();
+
+    // [FIX-POS-LINES] วาดกราฟใหม่หลังได้ราคา — เพื่อให้ Position Lines (Entry/TP/SL) + Mark Price
+    // แสดงทันทีโดยไม่ต้องรอให้ user กดเปลี่ยน TF
+    // (futdChartDraw ตรวจ candles.length ก่อนวาด ถ้าแท่งเทียนยังไม่โหลดจะ return เอง)
+    if (FUTD.chart.candles.length) futdChartDraw();
   } catch (e) {
     console.warn('[futdRefreshPrice] fail:', e.message);
   }
 }
 
 function futdCalcMargin() {
-  const size = parseFloat(document.getElementById('futd-size').value) || 0;
-  const lev  = parseFloat(document.getElementById('futd-lev').value) || 1;
+  const size = parseFloat(document.getElementById('futd-size')?.value) || 0;
+  // [v2.50] ใช้ FUTD.lev แทน futd-lev select (เพราะ new layout ใช้ cycle button)
+  const lev  = FUTD.lev || parseFloat(document.getElementById('futd-lev')?.value) || 1;
   const hint = document.getElementById('futd-margin-hint');
-  if (!size || !FUTD.lastPrice) { hint.textContent = 'Margin โดยประมาณ: — USDT'; return; }
+  if (!size || !FUTD.lastPrice) {
+    if (hint) hint.textContent = 'Margin: — USDT';
+    return;
+  }
   const margin = (FUTD.lastPrice * size) / lev;
-  hint.textContent = 'Margin โดยประมาณ: ' + margin.toLocaleString('en', { maximumFractionDigits: 2 }) + ' USDT';
+  if (hint) hint.textContent = 'Margin: ' + margin.toLocaleString('en', { maximumFractionDigits: 2 }) + ' USDT';
+  // [v2.50] sync max/cost display
+  if (typeof futdUpdateMaxCost === 'function') futdUpdateMaxCost();
 }
 
+// ── Account Status ────────────────────────────────────────────────
+// [v2.52 FIX-POLL-LOCK] in-flight guard — ป้องกัน concurrent GAS call ซ้อนกัน
+// pattern เดียวกับ _astRefreshInFlight ใน _astRefreshBalanceIfStale
+// FUTD._astInFlight set บน FUTD object เพื่อให้ poll setInterval ตรวจได้ด้วย
 async function futdRefreshAccountStatus() {
+  if (FUTD._astInFlight) return; // [FIX-POLL-LOCK] skip ถ้า request ก่อนยังไม่เสร็จ
   const uid = _futdCurrentUid();
   if (!uid) return;
+  FUTD._astInFlight = true; // [FIX-POLL-LOCK] ล็อก
   try {
     const status = await dbCallRaw('getFuturesAccountStatus', { uid });
     FUTD.status = status;
-    document.getElementById('futd-balance').innerHTML =
+
+    // [v2.50] อัปเดต Balance bar ใหม่
+    if (typeof futdUpdateBalanceBar === 'function') futdUpdateBalanceBar(status);
+
+    // [Legacy compat] อัปเดต element เดิม ถ้ายังมีอยู่ใน DOM
+    const balEl = document.getElementById('futd-balance');
+    if (balEl) balEl.innerHTML =
       (status.futures_balance || 0).toLocaleString('en', { minimumFractionDigits: 2 }) + ' <span style="font-size:12px;color:var(--t2)">USDT</span>';
-    document.getElementById('futd-margin-used').textContent  = (status.margin_used  || 0).toLocaleString('en', { minimumFractionDigits: 2 }) + ' USDT';
-    document.getElementById('futd-margin-avail').textContent = (status.avail_margin || 0).toLocaleString('en', { minimumFractionDigits: 2 }) + ' USDT';
+    const muEl = document.getElementById('futd-margin-used');
+    if (muEl) muEl.textContent = (status.margin_used  || 0).toLocaleString('en', { minimumFractionDigits: 2 }) + ' USDT';
+    const maEl = document.getElementById('futd-margin-avail');
+    if (maEl) maEl.textContent = (status.avail_margin || 0).toLocaleString('en', { minimumFractionDigits: 2 }) + ' USDT';
+
     futdRenderPositions(status.positions || []);
     futdRenderOrders(status.orders || []);
+
+    // อัปเดต position count badge
+    const cntPos = document.getElementById('futdCntPos');
+    const cntOrd = document.getElementById('futdCntOrd');
+    if (cntPos) cntPos.textContent = (status.positions || []).length || 0;
+    if (cntOrd) cntOrd.textContent = (status.orders    || []).length || 0;
+
+    // [FIX-POS-LINES] วาดกราฟใหม่หลังได้ positions — เพื่อให้ Position Lines (Entry/TP/SL)
+    // แสดงทันทีโดยไม่ต้องรอให้ user กดเปลี่ยน TF
+    if (FUTD.chart.candles.length) futdChartDraw();
   } catch (e) {
     console.warn('[futdRefreshAccountStatus] fail:', e.message);
+    // [v2.52] GAS-DEPLOY-ERROR หรือ Timeout: หยุด auto-poll ชั่วคราว 60s กัน storm
+    // ป้องกันกรณี GAS deployment พัง → error ท่วม console ทุก 15s ตลอดไป
+    if (e.message && (e.message.includes('GAS-DEPLOY-ERROR') || e.message.includes('Timeout'))) {
+      if (FUTD.pollTimer) {
+        clearInterval(FUTD.pollTimer);
+        FUTD.pollTimer = null;
+        console.warn('[futdRefreshAccountStatus] poll หยุดชั่วคราว 60s (GAS ไม่ตอบสนอง) — จะเริ่มใหม่อัตโนมัติ');
+        setTimeout(() => {
+          // resume ถ้า FUTD tab ยังเปิดอยู่ (pollTimer ถูกตั้งใหม่โดย futdInit เท่านั้น
+          // ถ้า user เปลี่ยน tab ไปแล้ว futdStopPolling() จะ null pollTimer ก่อนที่ setTimeout นี้ fire
+          // ดังนั้น check pollTimer === null ก่อน resume เท่านั้น ไม่ resume ถ้า stop แล้ว)
+          if (FUTD.pollTimer === null && _futdCurrentUid()) {
+            FUTD.pollTimer = setInterval(() => {
+              futdRefreshPrice();
+              if (!FUTD._astInFlight) futdRefreshAccountStatus();
+            }, 15000);
+            console.warn('[futdRefreshAccountStatus] poll resumed หลัง backoff 60s');
+          }
+        }, 60000);
+      }
+    }
+  } finally {
+    FUTD._astInFlight = false; // [FIX-POLL-LOCK] ปลดล็อกเสมอ ไม่ว่าจะ success/fail/timeout
   }
 }
 
+// ── Render Positions (enhanced) ───────────────────────────────────
 function futdRenderPositions(positions) {
   const el = document.getElementById('futd-positions-list');
-  if (!positions.length) { el.innerHTML = '<div class="futd-empty">ยังไม่มี Position ที่เปิดอยู่</div>'; return; }
+  if (!el) return;
+
+  // [v2.50] filter Hide Other Pairs
+  let filteredPos = positions;
+  if (FUTD.hideOtherPairs && FUTD.symbolCoin) {
+    filteredPos = positions.filter(p => {
+      const coin = (p.symbol || '').replace('USDT', '');
+      return coin === FUTD.symbolCoin;
+    });
+  }
+
+  if (!filteredPos.length) {
+    el.innerHTML = '<div class="futd-empty">ยังไม่มี Position ที่เปิดอยู่</div>';
+    return;
+  }
+  // reassign for rendering
+  positions = filteredPos;
+  const bal = parseFloat((FUTD.status || {}).futures_balance) || 0;
+
   el.innerHTML = positions.map(p => {
-    const coin = (p.symbol || '').replace('USDT', '');
-    const mkt  = (FUTD.status && FUTD.symbolCoin === coin) ? FUTD.lastPrice : null;
-    const pnlColor = 'var(--t2)';
-    return `<div class="futd-pos-row">
+    const coin      = (p.symbol || '').replace('USDT', '');
+    const entryP    = parseFloat(p.entry_price) || 0;
+    const size      = parseFloat(p.size) || 0;
+    const margin    = parseFloat(p.margin) || 0;
+    const liqP      = parseFloat(p.liq_price) || 0;
+    const markP     = FUTD.prices[coin] || 0;
+
+    // Unrealized PnL
+    let upnl = 0;
+    if (markP > 0 && entryP > 0 && size > 0) {
+      upnl = p.side === 'long'
+        ? (markP - entryP) * size
+        : (entryP - markP) * size;
+    }
+    const upnlColor = upnl >= 0 ? 'var(--g)' : 'var(--r)';
+    const roiPct    = margin > 0 ? ((upnl / margin) * 100) : 0;
+
+    // [v2.53] Margin Ratio: แยกตาม mode
+    // Isolated: maintenance_margin / isolated_margin ของ position นี้เท่านั้น
+    //           maintenance_margin = mmr × notional = 0.005 × entryP × size
+    // Cross:    margin_used / futures_balance รวมทั้งบัญชี (เหมือนเดิม)
+    const posMode     = String(p.mode || 'isolated').toLowerCase();
+    let mrPct = 0;
+    if (posMode === 'isolated') {
+      // Isolated: (mmr × entryP × size) / margin  ← ความเสี่ยงเป็น % ของ margin ที่วางไว้
+      const mmrFront = 0.005;
+      const maintMargin = mmrFront * entryP * size;
+      mrPct = margin > 0 ? Math.min(100, (maintMargin / margin) * 100) : 0;
+    } else {
+      // Cross: margin_used / futures_balance รวมบัญชี
+      const marginUsed = parseFloat((FUTD.status || {}).margin_used) || 0;
+      mrPct = bal > 0 ? Math.min(100, (marginUsed / bal) * 100) : 0;
+    }
+    const mrColor    = mrPct < 50 ? 'var(--g)' : mrPct < 80 ? 'var(--y)' : 'var(--r)';
+
+    // TP/SL chips
+    const tp = parseFloat(p.tp) || 0;
+    const sl = parseFloat(p.sl) || 0;
+    const tpChip = tp > 0
+      ? `<span class="futd-tpsl-chip tp">TP: ${tp.toLocaleString('en',{maximumFractionDigits:4})}</span>`
+      : `<span class="futd-tpsl-chip none">TP: —</span>`;
+    const slChip = sl > 0
+      ? `<span class="futd-tpsl-chip sl">SL: ${sl.toLocaleString('en',{maximumFractionDigits:4})}</span>`
+      : `<span class="futd-tpsl-chip none">SL: —</span>`;
+
+    const markStr = markP > 0 ? markP.toLocaleString('en',{maximumFractionDigits:4}) : '—';
+    const liqStr  = liqP  > 0 ? liqP.toLocaleString('en',{maximumFractionDigits:4})  : '—';
+
+    // [v2.53] mode badge
+    const modeBadge = posMode === 'isolated'
+      ? `<span style="font-size:9px;background:rgba(240,185,11,.15);color:var(--y);border:1px solid rgba(240,185,11,.3);border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:700">ISO</span>`
+      : `<span style="font-size:9px;background:rgba(14,203,129,.12);color:var(--g);border:1px solid rgba(14,203,129,.3);border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:700">CROSS</span>`;
+
+    return `<div class="futd-pos-row" id="futd-pos-${p.id}">
       <div class="futd-pos-top">
-        <div><span class="futd-pos-sym">${p.symbol}</span><span class="futd-pos-side ${p.side}">${p.side === 'long' ? 'LONG' : 'SHORT'} x${p.lev}</span></div>
-        <div class="futd-pos-pnl" style="color:${pnlColor}">${p.realized_pnl || '0.00'}</div>
+        <div>
+          <span class="futd-pos-sym">${p.symbol}</span>
+          <span class="futd-pos-side ${p.side}">${p.side === 'long' ? 'LONG' : 'SHORT'} x${p.lev}</span>${modeBadge}
+        </div>
+        <div style="text-align:right">
+          <div class="futd-pos-pnl" style="color:${upnlColor}" id="futd-upnl-${p.id}">
+            ${upnl >= 0 ? '+' : ''}${upnl.toFixed(2)} USDT
+          </div>
+          <div class="futd-pos-roi" style="color:${upnlColor}" id="futd-roi-${p.id}">
+            ${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%
+          </div>
+        </div>
       </div>
       <div class="futd-pos-detail">
-        <div>Entry<b>${p.entry_price}</b></div>
-        <div>Margin<b>${(parseFloat(p.margin)||0).toFixed(2)}</b></div>
-        <div>Liq. Price<b style="color:var(--r)">${p.liq_price}</b></div>
+        <div>Size (${coin})<b>${size}</b></div>
+        <div>Margin (USDT)<b>${margin.toFixed(2)} (≈$${margin.toFixed(2)})</b></div>
+        <div>Margin Ratio<b style="color:${mrColor}">${mrPct.toFixed(1)}%</b></div>
       </div>
+      <div class="futd-pos-detail2">
+        <div>Avg Entry<b>${entryP.toLocaleString('en',{maximumFractionDigits:4})}</b></div>
+        <div>Mark Price<b id="futd-mark-${p.id}">${markStr}</b></div>
+        <div>Liq. Price<b style="color:var(--r)">${liqStr}</b></div>
+      </div>
+      <div class="futd-mr-bar-wrap">
+        <div class="futd-mr-label"><span>Margin Ratio</span><span style="color:${mrColor}">${mrPct.toFixed(1)}%</span></div>
+        <div class="futd-mr-bar-bg"><div class="futd-mr-bar-fill" style="width:${mrPct.toFixed(1)}%;background:${mrColor}"></div></div>
+      </div>
+      <div class="futd-pos-tpsl-row">${tpChip}${slChip}</div>
       <div class="futd-pos-actions">
-        <div class="futd-btn-sm danger" onclick="futdCloseposition('${p.id}')">Close Position</div>
+        <div class="futd-btn-sm" onclick="futdAdjLeverage('${p.id}')">Leverage</div>
+        <div class="futd-btn-sm warn" onclick="futdOpenTpslSheet('${p.id}')">TP/SL</div>
+        ${posMode === 'isolated' ? `<div class="futd-btn-sm" style="color:var(--y);border-color:rgba(240,185,11,.4)" onclick="futdOpenMarginSheet('${p.id}')">+Margin</div>` : ''}
+        <div class="futd-btn-sm danger" onclick="futdCloseposition('${p.id}')">Close</div>
       </div>
     </div>`;
   }).join('');
 }
 
+/** อัปเดต unrealized PnL + mark price บน card โดยไม่ re-render ทั้งหมด */
+function futdUpdatePnlCards() {
+  const positions = (FUTD.status && FUTD.status.positions) || [];
+  positions.forEach(p => {
+    const coin   = (p.symbol || '').replace('USDT', '');
+    const entryP = parseFloat(p.entry_price) || 0;
+    const size   = parseFloat(p.size) || 0;
+    const margin = parseFloat(p.margin) || 0;
+    const markP  = FUTD.prices[coin] || 0;
+    if (!markP) return;
+
+    let upnl = p.side === 'long'
+      ? (markP - entryP) * size
+      : (entryP - markP) * size;
+    const roiPct   = margin > 0 ? ((upnl / margin) * 100) : 0;
+    const upnlColor = upnl >= 0 ? 'var(--g)' : 'var(--r)';
+
+    const upnlEl = document.getElementById('futd-upnl-' + p.id);
+    const roiEl  = document.getElementById('futd-roi-'  + p.id);
+    const markEl = document.getElementById('futd-mark-' + p.id);
+    if (upnlEl) { upnlEl.textContent = (upnl >= 0 ? '+' : '') + upnl.toFixed(2) + ' USDT'; upnlEl.style.color = upnlColor; }
+    if (roiEl)  { roiEl.textContent  = (roiPct >= 0 ? '+' : '') + roiPct.toFixed(2) + '%'; roiEl.style.color  = upnlColor; }
+    if (markEl) { markEl.textContent = markP.toLocaleString('en', { maximumFractionDigits: 4 }); }
+  });
+}
+
+// ── Render Orders ──────────────────────────────────────────────────
 function futdRenderOrders(orders) {
   const el = document.getElementById('futd-orders-list');
   if (!orders.length) { el.innerHTML = '<div class="futd-empty">ไม่มี Order ที่รอ Fill</div>'; return; }
@@ -35639,7 +37065,8 @@ function futdRenderOrders(orders) {
     </div>`).join('');
 }
 
-/** เปิด Position ทันที (Market) — เรียก action ใหม่ openFuturesPosition เท่านั้น */
+// ── Open / Close / Cancel ──────────────────────────────────────────
+/** เปิด Position ทันที (Market) */
 async function futdSubmitOpen() {
   const uid = _futdCurrentUid();
   if (!uid) { showToast('กรุณาเข้าสู่ระบบก่อน'); return; }
@@ -35655,7 +37082,7 @@ async function futdSubmitOpen() {
   try {
     await dbCallRaw('openFuturesPosition', {
       uid, symbol: FUTD.symbolCoin + 'USDT', side: FUTD.side, lev, size,
-      entry_price: FUTD.lastPrice, mode: 'isolated',
+      entry_price: FUTD.lastPrice, mode: FUTD.marginMode || 'cross', // [v2.53]
       tp: tp || '', sl: sl || '',
     });
     showToast('✅ เปิด Position สำเร็จ');
@@ -35668,16 +37095,192 @@ async function futdSubmitOpen() {
   }
 }
 
-/** ปิด Position ด้วยมือ (Market Close ที่ราคาตลาดปัจจุบันของเหรียญนั้นๆ) */
+// [v2.51] Leverage adjustment for Direct positions (toast + cycle like Contract posAdjLeverage)
+function futdAdjLeverage(posId) {
+  const pos = ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === posId);
+  if (!pos) return;
+  const levSteps = [5, 10, 25, 50, 75, 100, 125, 150];
+  const curLev = parseInt(pos.lev) || 50;
+  const curIdx = levSteps.indexOf(curLev);
+  const nextIdx = (curIdx + 1) % levSteps.length;
+  const nextLev = levSteps[nextIdx];
+  // Optimistic update
+  pos.lev = nextLev;
+  showToast('Leverage: ' + nextLev + 'x (จะมีผลบน Position ถัดไป)');
+  futdRenderPositions(FUTD.status.positions || []);
+}
+
+// ══════════════════════════════════════════════════════════
+// [v2.53] Margin Mode Toggle (Cross / Isolated)
+// ══════════════════════════════════════════════════════════
+
+/** สลับ Cross ↔ Isolated และอัปเดตปุ่มใน UI */
+function futdToggleMarginMode() {
+  FUTD.marginMode = (FUTD.marginMode === 'cross') ? 'isolated' : 'cross';
+  futdUpdateMarginModeBtn();
+  // แจ้งผู้ใช้ให้เข้าใจความแตกต่าง
+  if (FUTD.marginMode === 'isolated') {
+    showToast('🔒 Isolated Margin — ขาดทุนสูงสุด = Margin ของ Position นั้นเท่านั้น');
+  } else {
+    showToast('🔀 Cross Margin — ใช้ Equity รวมทั้งบัญชี, Liq. Price อิงยอดรวม');
+  }
+}
+
+/** อัปเดตตัวอักษร + สีของปุ่ม Margin Mode */
+function futdUpdateMarginModeBtn() {
+  const btn = document.getElementById('futdMarginModeBtn');
+  if (!btn) return;
+  if (FUTD.marginMode === 'isolated') {
+    btn.textContent = 'Isolated';
+    btn.style.color        = 'var(--y)';
+    btn.style.borderColor  = 'rgba(240,185,11,.5)';
+  } else {
+    btn.textContent = 'Cross';
+    btn.style.color        = '';
+    btn.style.borderColor  = '';
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// [v2.53] Adjust Margin Sheet (Isolated positions เท่านั้น)
+// ──────────────────────────────────────────────────────────
+// เหมือน Binance "Add / Remove Margin" — ผู้ใช้ระบุ USDT
+// แล้ว GAS ปรับ margin + recalc liq_price ใหม่
+// ══════════════════════════════════════════════════════════
+
+/** เปิด Adjust Margin bottom-sheet */
+function futdOpenMarginSheet(posId) {
+  const pos = ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === posId);
+  if (!pos) return;
+  if (String(pos.mode || '').toLowerCase() !== 'isolated') {
+    showToast('Adjust Margin ใช้ได้เฉพาะ Isolated Margin เท่านั้น');
+    return;
+  }
+  FUTD._marginPosId = posId;
+
+  const coin   = (pos.symbol || '').replace('USDT', '');
+  const entryP = parseFloat(pos.entry_price) || 0;
+  const size   = parseFloat(pos.size) || 0;
+  const margin = parseFloat(pos.margin) || 0;
+  const liqP   = parseFloat(pos.liq_price) || 0;
+  const avail  = parseFloat((FUTD.status || {}).avail_margin) || 0;
+
+  // ค่า effective lev ปัจจุบัน
+  const effLev = (entryP > 0 && size > 0 && margin > 0)
+    ? ((entryP * size) / margin).toFixed(1)
+    : (pos.lev || '—');
+
+  const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const symEl = document.getElementById('futdMgSym');
+  if (symEl) symEl.innerHTML =
+    pos.symbol +
+    ` <span style="background:${pos.side==='long'?'rgba(14,203,129,.15)':'rgba(246,70,93,.15)'};color:${pos.side==='long'?'var(--g)':'var(--r)'};font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700">${pos.side === 'long' ? 'LONG' : 'SHORT'} ${pos.lev}x ISO</span>`;
+
+  setTxt('futdMgCurMargin', margin.toFixed(2) + ' USDT');
+  setTxt('futdMgLiq',       liqP > 0 ? liqP.toLocaleString('en', { maximumFractionDigits: 4 }) : '—');
+  setTxt('futdMgAvail',     avail.toFixed(2) + ' USDT');
+  setTxt('futdMgEffLev',    effLev + 'x');
+
+  // ล้าง input + tab
+  const inp = document.getElementById('futdMgAmtInp');
+  if (inp) inp.value = '';
+  futdMgSetTab('add');
+
+  document.getElementById('futdMarginSheet').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+/** ปิด Adjust Margin sheet */
+function futdCloseMarginSheet() {
+  document.getElementById('futdMarginSheet').classList.remove('open');
+  document.body.style.overflow = '';
+  FUTD._marginPosId = null;
+}
+
+/** สลับ tab Add / Remove */
+function futdMgSetTab(tab) {
+  FUTD._marginTab = tab;
+  const addBtn = document.getElementById('futdMgTabAdd');
+  const remBtn = document.getElementById('futdMgTabRem');
+  const hint   = document.getElementById('futdMgHint');
+  if (addBtn) addBtn.classList.toggle('active', tab === 'add');
+  if (remBtn) remBtn.classList.toggle('active', tab === 'remove');
+  if (hint) hint.textContent = tab === 'add'
+    ? 'เพิ่ม Margin → Liq. Price ห่างขึ้น (ความเสี่ยงลดลง)'
+    : 'ลด Margin → ดึง USDT กลับเข้า Wallet (Liq. Price ใกล้ขึ้น)';
+}
+
+/** ยืนยัน Adjust Margin → ส่ง GAS + Optimistic UI update ทันที */
+async function futdConfirmMarginAdj() {
+  const posId = FUTD._marginPosId;
+  if (!posId) return;
+  const uid = _futdCurrentUid();
+  if (!uid) { showToast('กรุณาเข้าสู่ระบบก่อน'); return; }
+
+  const amtRaw = parseFloat(document.getElementById('futdMgAmtInp')?.value) || 0;
+  if (!amtRaw || amtRaw <= 0) { showToast('กรุณาระบุจำนวน USDT'); return; }
+
+  const delta = (FUTD._marginTab === 'remove') ? -amtRaw : amtRaw;
+  const label = delta > 0 ? 'เพิ่ม' : 'ลด';
+
+  const confirmBtn = document.getElementById('futdMgConfirmBtn');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'กำลังดำเนินการ...'; }
+
+  // [FIX-MARGIN-OPTIMISTIC] อัปเดต FUTD.status ทันทีก่อน GAS ตอบกลับ เพื่อให้ UI ไม่ต้อง refresh
+  const idx = (FUTD.status && FUTD.status.positions || []).findIndex(p => p.id === posId);
+  const prevMargin = idx >= 0 ? parseFloat(FUTD.status.positions[idx].margin) || 0 : 0;
+  if (idx >= 0) {
+    const newMargin = Math.max(0, prevMargin + delta);
+    FUTD.status.positions[idx].margin = newMargin;
+    // อัปเดต avail_margin ด้านบัญชี (optimistic)
+    if (FUTD.status.avail_margin !== undefined) {
+      FUTD.status.avail_margin = Math.max(0, (parseFloat(FUTD.status.avail_margin) || 0) - delta);
+    }
+  }
+  // render ทันที (ก่อน GAS)
+  futdRenderPositions(FUTD.status.positions || []);
+  futdCloseMarginSheet();
+
+  try {
+    const res = await dbCallRaw('adjustFuturesMargin', { id: posId, uid, delta });
+    // GAS ตอบกลับ — อัปเดตค่าจริงจาก response
+    if (idx >= 0 && res.new_margin !== undefined) {
+      FUTD.status.positions[idx].margin    = res.new_margin;
+      FUTD.status.positions[idx].liq_price = res.new_liq_price || FUTD.status.positions[idx].liq_price;
+    }
+    showToast('✅ ' + label + ' Margin สำเร็จ — Margin ใหม่: ' +
+              (res.new_margin || 0).toFixed(2) + ' USDT | Liq.: ' +
+              (res.new_liq_price || 0).toLocaleString('en', { maximumFractionDigits: 4 }));
+    futdRenderPositions(FUTD.status.positions || []);
+    // sync รอบสุดท้ายจาก GAS (ให้แน่ใจว่าข้อมูลตรง)
+    futdRefreshAccountStatus();
+  } catch (e) {
+    // GAS ผิดพลาด — ย้อน optimistic กลับ
+    if (idx >= 0) { FUTD.status.positions[idx].margin = prevMargin; }
+    if (FUTD.status.avail_margin !== undefined) {
+      FUTD.status.avail_margin = Math.max(0, (parseFloat(FUTD.status.avail_margin) || 0) + delta);
+    }
+    futdRenderPositions(FUTD.status.positions || []);
+    showToast('❌ ' + (e.message || label + ' Margin ไม่สำเร็จ'));
+  } finally {
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'ยืนยัน'; }
+  }
+}
+
+/** ปิด Position ด้วยมือ (Market Close ที่ราคาตลาดปัจจุบัน) */
 async function futdCloseposition(posId) {
   const uid = _futdCurrentUid();
-  const pos = (FUTD.status && FUTD.status.positions || []).find(p => p.id === posId);
+  const pos = ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === posId);
   if (!pos) return;
   const coin = (pos.symbol || '').replace('USDT', '');
 
   try {
-    const mids = await hlPost({ type: 'allMids' });
-    const exitPrice = parseFloat(mids[coin]) || 0;
+    // ใช้ราคาจาก FUTD.prices ก่อน (มักมีอยู่แล้ว) ถ้าไม่มีค่อย fetch ใหม่
+    let exitPrice = FUTD.prices[coin] || 0;
+    if (!exitPrice) {
+      const mids = await hlPost({ type: 'allMids' });
+      exitPrice = parseFloat(mids[coin]) || 0;
+    }
     if (!exitPrice) { showToast('ไม่สามารถดึงราคาปัจจุบันได้ ลองใหม่อีกครั้ง'); return; }
 
     await dbCallRaw('closeFuturesPosition', { id: posId, uid, exit_price: exitPrice });
@@ -35696,6 +37299,989 @@ async function futdCancelorder(orderId) {
   } catch (e) {
     showToast('❌ ' + (e.message || 'ยกเลิก Order ไม่สำเร็จ'));
   }
+}
+
+// ── TP/SL Sheet ───────────────────────────────────────────────────
+function futdOpenTpslSheet(posId) {
+  const pos = ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === posId);
+  if (!pos) return;
+  FUTD.tpslPosId = posId;
+
+  const coin   = (pos.symbol || '').replace('USDT', '');
+  const markP  = FUTD.prices[coin] || 0;
+  const liqP   = parseFloat(pos.liq_price) || 0;
+  const entryP = parseFloat(pos.entry_price) || 0;
+  const size   = parseFloat(pos.size) || 0;
+  const tp     = parseFloat(pos.tp) || 0;
+  const sl     = parseFloat(pos.sl) || 0;
+
+  // Populate info header
+  const symEl = document.getElementById('futdTpslSym');
+  if (symEl) symEl.innerHTML = `${pos.symbol} <span style="background:${pos.side==='long'?'rgba(14,203,129,.15)':'rgba(246,70,93,.15)'};color:${pos.side==='long'?'var(--g)':'var(--r)'};font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700">${pos.side === 'long' ? 'LONG' : 'SHORT'} ${pos.lev}x</span>`;
+
+  const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const liqStr = liqP > 0 ? liqP.toLocaleString('en',{maximumFractionDigits:4}) : '—';
+  setTxt('futdTpslEntry',         entryP > 0 ? entryP.toLocaleString('en',{maximumFractionDigits:4}) : '—');
+  setTxt('futdTpslMark',          markP  > 0 ? markP.toLocaleString('en',{maximumFractionDigits:4})  : '—');
+  setTxt('futdTpslLiq',           liqStr);
+  // sync liq note fields in all tabs
+  setTxt('futdTsshLiqNote',       liqStr);
+  setTxt('futdTsshLiqNotePosTab', liqStr);
+
+  // Amount display
+  const sizeStr = size > 0 ? size + ' ' + coin : '—';
+  setTxt('futdTsshPosAmt',        sizeStr);
+  setTxt('futdTsshAmtCoin',       coin);
+  setTxt('futdTsshAmtPct',        `100% (≈${size > 0 ? size : '—'})`);
+  setTxt('futdTsshTrailAmtCoin',  coin);
+  setTxt('futdTsshTrailPosAmt',   sizeStr);
+  setTxt('futdTsshTrailAmtPct',   `100% (≈${size > 0 ? size : '—'})`);
+
+  // Reset sliders
+  ['futdTsshAmtSlider','futdTsshTrailSlider'].forEach(id => {
+    const sl = document.getElementById(id);
+    if (sl) { sl.value = 100; sl.style.setProperty('--pct','100%'); }
+  });
+
+  // Pre-fill TP/SL inputs
+  const tpInp     = document.getElementById('futdTpslTpInp');
+  const slInp     = document.getElementById('futdTpslSlInp');
+  const posTpInp  = document.getElementById('futdTsshPosTpInp');
+  const posSlInp  = document.getElementById('futdTsshPosSlInp');
+  if (tpInp)    tpInp.value    = tp > 0 ? tp : '';
+  if (slInp)    slInp.value    = sl > 0 ? sl : '';
+  if (posTpInp) posTpInp.value = tp > 0 ? tp : '';
+  if (posSlInp) posSlInp.value = sl > 0 ? sl : '';
+
+  // Reset trailing
+  const cbInp = document.getElementById('futdTsshCbInp');
+  if (cbInp) cbInp.value = '';
+  document.querySelectorAll('.futd-tssh-cb-btn').forEach(b => b.classList.remove('active'));
+
+  // Switch to first tab
+  futdTsshSwitchTab('tpsl');
+
+  // Update dynamic hints
+  futdTsshUpdateHints();
+
+  document.getElementById('futdTpslSheet').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function futdCloseTpslSheet() {
+  document.getElementById('futdTpslSheet').classList.remove('open');
+  document.body.style.overflow = '';
+  FUTD.tpslPosId = null;
+}
+
+/** [v2.55] สลับ sub-tab ของ futdTpslSheet */
+function futdTsshSwitchTab(tab) {
+  ['tpsl','position','trailing'].forEach(t => {
+    const btn = document.getElementById('futdTsshTab' + t.charAt(0).toUpperCase() + t.slice(1));
+    const panel = document.getElementById('futdTsshPanel' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn)   btn.classList.toggle('active',   t === tab);
+    if (panel) panel.classList.toggle('active', t === tab);
+  });
+  FUTD._tpslTab = tab;
+}
+
+/** [v2.55] อัปเดต live PnL hints เมื่อ user พิมพ์ TP/SL */
+function futdTsshUpdateHints() {
+  const pos = FUTD.tpslPosId && ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === FUTD.tpslPosId);
+  if (!pos) return;
+  const coin   = (pos.symbol || '').replace('USDT', '');
+  const markP  = FUTD.prices[coin] || 0;
+  const entryP = parseFloat(pos.entry_price) || 0;
+  const size   = parseFloat(pos.size) || 0;
+  const margin = parseFloat(pos.margin) || 0;
+
+  const calcPnl = (triggerP) => {
+    if (!triggerP || !entryP || !size) return null;
+    return pos.side === 'long' ? (triggerP - entryP) * size : (entryP - triggerP) * size;
+  };
+  const fmtPnl = (pnl) => {
+    if (pnl === null) return '—';
+    const color = pnl >= 0 ? 'var(--g)' : 'var(--r)';
+    const pct   = margin > 0 ? ((pnl / margin) * 100).toFixed(2) + '%' : '';
+    return `<span style="color:${color}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT ${pct ? '('+pct+')' : ''}</span>`;
+  };
+  const setInner = (id, v) => { const e = document.getElementById(id); if (e) e.innerHTML = v; };
+  const setTxt   = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+
+  const tpVal  = parseFloat(document.getElementById('futdTpslTpInp')?.value) || 0;
+  const slVal  = parseFloat(document.getElementById('futdTpslSlInp')?.value) || 0;
+  const ptpVal = parseFloat(document.getElementById('futdTsshPosTpInp')?.value) || 0;
+  const pslVal = parseFloat(document.getElementById('futdTsshPosSlInp')?.value) || 0;
+
+  // Tab 1 hints
+  if (tpVal > 0) {
+    setTxt('futdTsshTpHintPrice', tpVal.toLocaleString('en',{maximumFractionDigits:4}));
+    setInner('futdTsshTpHintPnl', fmtPnl(calcPnl(tpVal)));
+    const liveTpEl = document.getElementById('futdTsshTpLivePnl');
+    if (liveTpEl) { const pnl = calcPnl(tpVal); if (pnl !== null) { liveTpEl.innerHTML = fmtPnl(pnl); liveTpEl.style.display = 'inline-block'; } }
+  } else {
+    setTxt('futdTsshTpHintPrice','—'); setTxt('futdTsshTpHintPnl','—');
+    const liveTpEl = document.getElementById('futdTsshTpLivePnl'); if (liveTpEl) liveTpEl.style.display = 'none';
+  }
+  if (slVal > 0) {
+    setTxt('futdTsshSlHintPrice', slVal.toLocaleString('en',{maximumFractionDigits:4}));
+    setInner('futdTsshSlHintPnl', fmtPnl(calcPnl(slVal)));
+    const liveSlEl = document.getElementById('futdTsshSlLivePnl');
+    if (liveSlEl) { const pnl = calcPnl(slVal); if (pnl !== null) { liveSlEl.innerHTML = fmtPnl(pnl); liveSlEl.style.display = 'inline-block'; } }
+  } else {
+    setTxt('futdTsshSlHintPrice','—'); setTxt('futdTsshSlHintPnl','—');
+    const liveSlEl = document.getElementById('futdTsshSlLivePnl'); if (liveSlEl) liveSlEl.style.display = 'none';
+  }
+  // Tab 2 hints
+  if (ptpVal > 0) {
+    setTxt('futdTsshPosTpHintPrice', ptpVal.toLocaleString('en',{maximumFractionDigits:4}));
+    setInner('futdTsshPosTpHintPnl', fmtPnl(calcPnl(ptpVal)));
+    const el = document.getElementById('futdTsshPosTpLivePnl'); if (el) { const pnl=calcPnl(ptpVal); if(pnl!==null){el.innerHTML=fmtPnl(pnl);el.style.display='inline-block';} }
+  } else { setTxt('futdTsshPosTpHintPrice','—'); setTxt('futdTsshPosTpHintPnl','—'); const el=document.getElementById('futdTsshPosTpLivePnl');if(el)el.style.display='none'; }
+  if (pslVal > 0) {
+    setTxt('futdTsshPosSlHintPrice', pslVal.toLocaleString('en',{maximumFractionDigits:4}));
+    setInner('futdTsshPosSlHintPnl', fmtPnl(calcPnl(pslVal)));
+    const el = document.getElementById('futdTsshPosSlLivePnl'); if (el) { const pnl=calcPnl(pslVal); if(pnl!==null){el.innerHTML=fmtPnl(pnl);el.style.display='inline-block';} }
+  } else { setTxt('futdTsshPosSlHintPrice','—'); setTxt('futdTsshPosSlHintPnl','—'); const el=document.getElementById('futdTsshPosSlLivePnl');if(el)el.style.display='none'; }
+
+  // Static hints ที่ไม่ขึ้นกับ input
+  const tpHintEl = document.getElementById('futdTpslTpHint');
+  const slHintEl = document.getElementById('futdTpslSlHint');
+  if (!tpVal && markP > 0 && tpHintEl) {
+    tpHintEl.innerHTML = pos.side === 'long'
+      ? `TP ต้องสูงกว่า Mark Price (${markP.toLocaleString('en',{maximumFractionDigits:4})})`
+      : `TP ต้องต่ำกว่า Mark Price (${markP.toLocaleString('en',{maximumFractionDigits:4})})`;
+  }
+  if (!slVal && slHintEl) {
+    slHintEl.innerHTML = pos.side === 'long'
+      ? 'SL ต้องต่ำกว่า Mark Price และสูงกว่า Liq. Price'
+      : 'SL ต้องสูงกว่า Mark Price และต่ำกว่า Liq. Price';
+  }
+}
+
+/** [v2.55] Amount slider handlers */
+function futdTsshOnAmtSlider(el) {
+  const v = parseInt(el.value);
+  el.style.setProperty('--pct', v + '%');
+  const pos = FUTD.tpslPosId && ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === FUTD.tpslPosId);
+  if (!pos) return;
+  const coin = (pos.symbol || '').replace('USDT', '');
+  const size = parseFloat(pos.size) || 0;
+  const amt  = (size * v / 100).toFixed(3);
+  const el2 = document.getElementById('futdTsshAmtPct');
+  if (el2) el2.textContent = `${v}% (≈${amt})`;
+}
+function futdTsshSetAmtSlider(v) {
+  const sl = document.getElementById('futdTsshAmtSlider');
+  if (sl) { sl.value = v; sl.style.setProperty('--pct', v + '%'); futdTsshOnAmtSlider(sl); }
+}
+function futdTsshOnTrailSlider(el) {
+  const v = parseInt(el.value);
+  el.style.setProperty('--pct', v + '%');
+  const pos = FUTD.tpslPosId && ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === FUTD.tpslPosId);
+  if (!pos) return;
+  const size = parseFloat(pos.size) || 0;
+  const amt  = (size * v / 100).toFixed(3);
+  const el2 = document.getElementById('futdTsshTrailAmtPct');
+  if (el2) el2.textContent = `${v}% (≈${amt})`;
+}
+function futdTsshSetTrailSlider(v) {
+  const sl = document.getElementById('futdTsshTrailSlider');
+  if (sl) { sl.value = v; sl.style.setProperty('--pct', v + '%'); futdTsshOnTrailSlider(sl); }
+}
+function futdTsshSetCb(el, val) {
+  document.querySelectorAll('.futd-tssh-cb-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  const inp = document.getElementById('futdTsshCbInp');
+  if (inp) inp.value = val;
+}
+
+/** [v2.55] Confirm จาก Position TP/SL tab — ดึงค่าจาก posTp/posSlInp แล้วส่งเข้า futdConfirmTpsl */
+async function futdConfirmTpslFromPositionTab() {
+  // sync ค่าจาก Position tab → main inputs ก่อนส่ง
+  const ptpVal = document.getElementById('futdTsshPosTpInp')?.value || '';
+  const pslVal = document.getElementById('futdTsshPosSlInp')?.value || '';
+  const mainTp = document.getElementById('futdTpslTpInp');
+  const mainSl = document.getElementById('futdTpslSlInp');
+  if (mainTp) mainTp.value = ptpVal;
+  if (mainSl) mainSl.value = pslVal;
+  await futdConfirmTpsl();
+}
+
+/** [v2.55] Confirm Trailing Stop — บันทึก trailingCb ใน FUTD.status.positions */
+async function futdConfirmTrailingStop() {
+  const uid = _futdCurrentUid();
+  if (!uid || !FUTD.tpslPosId) return;
+  const cb = parseFloat(document.getElementById('futdTsshCbInp')?.value);
+  if (!cb || cb <= 0) { showToast('กรุณาระบุ Callback Ratio (%)'); return; }
+  const idx = (FUTD.status && FUTD.status.positions || []).findIndex(p => p.id === FUTD.tpslPosId);
+  if (idx >= 0) {
+    FUTD.status.positions[idx].trailingCb     = cb;
+    FUTD.status.positions[idx].trailingActive = true;
+  }
+  futdRenderPositions(FUTD.status.positions || []);
+  futdCloseTpslSheet();
+  showToast('✅ Trailing Stop (' + cb + '%) ตั้งค่าเรียบร้อย');
+}
+
+// [DEPRECATED v2.55] ฟังก์ชันเก่า — ยังคงไว้เพื่อ backward compat แต่ redirect ไปยัง futdTsshUpdateHints
+function futdUpdateTpslHints(pos, markP) {
+  futdTsshUpdateHints();
+}
+
+async function futdConfirmTpsl() {
+  const uid = _futdCurrentUid();
+  if (!uid || !FUTD.tpslPosId) return;
+
+  const pos = ((FUTD.status && FUTD.status.positions) || []).find(p => p.id === FUTD.tpslPosId);
+  if (!pos) { futdCloseTpslSheet(); return; }
+
+  const tpVal = parseFloat(document.getElementById('futdTpslTpInp')?.value) || null;
+  const slVal = parseFloat(document.getElementById('futdTpslSlInp')?.value) || null;
+
+  // Validate TP/SL direction vs mark price
+  const coin  = (pos.symbol || '').replace('USDT', '');
+  const markP = FUTD.prices[coin] || 0;
+  if (markP > 0) {
+    if (tpVal) {
+      const bad = pos.side === 'long' ? tpVal <= markP : tpVal >= markP;
+      if (bad) { showToast('⚠️ TP อยู่ผิดทิศ — ' + (pos.side === 'long' ? 'Long ต้องสูงกว่า Mark' : 'Short ต้องต่ำกว่า Mark')); return; }
+    }
+    if (slVal) {
+      const bad = pos.side === 'long' ? slVal >= markP : slVal <= markP;
+      if (bad) { showToast('⚠️ SL อยู่ผิดทิศ — ' + (pos.side === 'long' ? 'Long ต้องต่ำกว่า Mark' : 'Short ต้องสูงกว่า Mark')); return; }
+    }
+  }
+
+  // [FIX-TPSL-OPTIMISTIC] บันทึกใน FUTD.status ทันที (optimistic) แล้ว render + ปิด sheet ก่อน GAS
+  const tpslPosId = FUTD.tpslPosId; // เก็บ id ก่อน close sheet ล้าง
+  const idx = (FUTD.status.positions || []).findIndex(p => p.id === tpslPosId);
+  const prevTp = idx >= 0 ? FUTD.status.positions[idx].tp : undefined;
+  const prevSl = idx >= 0 ? FUTD.status.positions[idx].sl : undefined;
+  if (idx >= 0) { FUTD.status.positions[idx].tp = tpVal; FUTD.status.positions[idx].sl = slVal; }
+
+  // render ทันที — ผู้ใช้เห็นผลโดยไม่ต้อง refresh
+  futdRenderPositions(FUTD.status.positions || []);
+  futdCloseTpslSheet();
+
+  // เรียก GAS action updateFuturesTpSl (เขียนลง FUT_POS — ไม่ชนกับ updateTpsl ของ EarnContract)
+  try {
+    await dbCallRaw('updateFuturesTpSl', {
+      id: tpslPosId, uid,
+      tp: tpVal !== null ? tpVal : null,
+      sl: slVal !== null ? slVal : null,
+    });
+    showToast('✅ บันทึก TP/SL สำเร็จ' + (tpVal ? ' | TP: ' + tpVal : '') + (slVal ? ' | SL: ' + slVal : ''));
+  } catch (e) {
+    // GAS ผิดพลาด — ย้อน optimistic กลับ
+    if (idx >= 0) { FUTD.status.positions[idx].tp = prevTp; FUTD.status.positions[idx].sl = prevSl; }
+    futdRenderPositions(FUTD.status.positions || []);
+    showToast('⚠️ บันทึก TP/SL ไม่สำเร็จ: ' + (e.message || 'ลองใหม่อีกครั้ง'));
+  }
+}
+
+// ── Chart (lightweight — reuse hlPost + candle drawing logic) ─────
+const FUTD_CHART = {
+  pollTimer:     null,   // candle refresh interval
+  countdownTimer: null,  // 1-second tick สำหรับ countdown bar
+  resizeObs:     null,
+};
+
+function futdChartInit() {
+  const panel = document.getElementById('futdChartPanel');
+  if (!panel) return;
+  // [FIX-CHART-DISPLAY] ล้าง inline style.display='none' ที่ navTo()/futSwitchTab('contract') ตั้งไว้
+  // inline style override CSS rule #futdChartPanel.active{display:block} เสมอ
+  panel.style.display = '';
+  panel.classList.add('active');
+
+  // Set initial canvas height
+  futdChartSetH(FUTD.chart.wrapH);
+  futdChartRecalcPad();
+
+  // Drag-to-resize
+  const handle = document.getElementById('futdDragHandle');
+  if (handle) {
+    let startY = 0, startH = 0, dragging = false;
+    const onMove = e => {
+      if (!dragging) return;
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      const delta = startY - y;
+      futdChartSetH(startH + delta);
+      futdChartRecalcPad();
+    };
+    const onEnd = () => { dragging = false; futdChartDraw(); };
+    handle.addEventListener('mousedown',  e => { dragging = true; startY = e.clientY; startH = FUTD.chart.wrapH; });
+    handle.addEventListener('touchstart', e => { dragging = true; startY = e.touches[0].clientY; startH = FUTD.chart.wrapH; }, { passive: true });
+    document.addEventListener('mousemove',  onMove);
+    document.addEventListener('touchmove',  onMove, { passive: true });
+    document.addEventListener('mouseup',  onEnd);
+    document.addEventListener('touchend', onEnd);
+  }
+
+  // Pan / Zoom on chart canvas
+  const canvas = document.getElementById('futdChartCanvas');
+  if (canvas) {
+    let panning = false, panStartX = 0, panVisStart = null;
+    let pinchDist = 0;
+
+    // Mouse drag pan
+    canvas.addEventListener('mousedown', e => {
+      panning = true; panStartX = e.clientX;
+      panVisStart = FUTD.chart.viewStart !== null
+        ? FUTD.chart.viewStart
+        : Math.max(0, FUTD.chart.candles.length - FUTD.chart.visCount);
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (!panning) return;
+      const dx = e.clientX - panStartX;
+      const cW = (canvas.clientWidth || 375) / FUTD.chart.visCount;
+      const delta = Math.round(dx / cW);
+      const total = FUTD.chart.candles.length;
+      const vis   = FUTD.chart.visCount;
+      FUTD.chart.viewStart = Math.max(0, Math.min(total - vis, panVisStart - delta));
+      futdChartDraw();
+    });
+    canvas.addEventListener('mouseup',   () => { panning = false; });
+    canvas.addEventListener('mouseleave',() => { panning = false; });
+
+    // Touch drag pan
+    canvas.addEventListener('touchstart', e => {
+      if (e.touches.length === 1) {
+        panning = true; panStartX = e.touches[0].clientX;
+        panVisStart = FUTD.chart.viewStart !== null
+          ? FUTD.chart.viewStart
+          : Math.max(0, FUTD.chart.candles.length - FUTD.chart.visCount);
+      } else if (e.touches.length === 2) {
+        panning = false;
+        pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+      if (e.touches.length === 1 && panning) {
+        const dx = e.touches[0].clientX - panStartX;
+        const cW = (canvas.clientWidth || 375) / FUTD.chart.visCount;
+        const delta = Math.round(dx / cW);
+        const total = FUTD.chart.candles.length;
+        const vis   = FUTD.chart.visCount;
+        FUTD.chart.viewStart = Math.max(0, Math.min(total - vis, panVisStart - delta));
+        futdChartDraw();
+      } else if (e.touches.length === 2) {
+        // Pinch zoom
+        const newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (pinchDist > 0) {
+          const factor = pinchDist / newDist; // zoom out if pulling apart
+          const newVis = Math.round(Math.max(10, Math.min(500, FUTD.chart.visCount * factor)));
+          if (newVis !== FUTD.chart.visCount) {
+            const center = (FUTD.chart.viewStart || 0) + FUTD.chart.visCount / 2;
+            FUTD.chart.visCount  = newVis;
+            FUTD.chart.viewStart = Math.max(0, Math.min(FUTD.chart.candles.length - newVis, Math.round(center - newVis / 2)));
+            futdChartDraw();
+          }
+        }
+        pinchDist = newDist;
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchend', () => { panning = false; pinchDist = 0; });
+
+    // Scroll wheel zoom
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 1.15 : 0.87;
+      const newVis = Math.round(Math.max(10, Math.min(500, FUTD.chart.visCount * factor)));
+      if (newVis !== FUTD.chart.visCount) {
+        const center = (FUTD.chart.viewStart || 0) + FUTD.chart.visCount / 2;
+        FUTD.chart.visCount  = newVis;
+        FUTD.chart.viewStart = Math.max(0, Math.min(FUTD.chart.candles.length - newVis, Math.round(center - newVis / 2)));
+        futdChartDraw();
+      }
+    }, { passive: false });
+  }
+
+  // Load candles
+  futdChartLoad();
+
+  // Countdown ticker — tick ทุกวินาทีเพื่ออัปเดต countdown pill
+  if (FUTD_CHART.countdownTimer) clearInterval(FUTD_CHART.countdownTimer);
+  FUTD_CHART.countdownTimer = setInterval(() => {
+    const last = FUTD.chart.candles[FUTD.chart.candles.length - 1];
+    if (last) futdUpdateCandleCountdown(last);
+  }, 1000);
+
+  // Update chart header symbol
+  const symEl = document.getElementById('futdChartHdrSym');
+  if (symEl) symEl.textContent = FUTD.symbolCoin + 'USDT';
+}
+
+function futdChartStop() {
+  if (FUTD_CHART.pollTimer)      { clearInterval(FUTD_CHART.pollTimer);      FUTD_CHART.pollTimer      = null; }
+  if (FUTD_CHART.countdownTimer) { clearInterval(FUTD_CHART.countdownTimer); FUTD_CHART.countdownTimer = null; }
+  const panel = document.getElementById('futdChartPanel');
+  if (panel) panel.classList.remove('active');
+  futdChartRecalcPad();
+}
+
+function futdChartSetH(h) {
+  h = Math.max(80, Math.min(400, h));
+  FUTD.chart.wrapH = h;
+  const wrap = document.getElementById('futdChartWrap');
+  if (wrap) wrap.style.height = h + 'px';
+}
+
+function futdChartRecalcPad() {
+  const panel = document.getElementById('futdChartPanel');
+  const spacer = document.getElementById('futd-chart-spacer');
+  if (!panel || !spacer) return;
+  const ph = (FUTD.chart.open && panel.classList.contains('active')) ? panel.offsetHeight : 0;
+  spacer.style.height = (ph + 68) + 'px';
+}
+
+function futdToggleChart() {
+  FUTD.chart.open = !FUTD.chart.open;
+  const sec     = document.getElementById('futdChartSec');
+  const hdr     = document.getElementById('futdChartHdr');
+  if (sec) sec.style.display = FUTD.chart.open ? '' : 'none';
+  if (hdr) hdr.classList.toggle('show', !FUTD.chart.open);
+  setTimeout(() => { futdChartRecalcPad(); if (FUTD.chart.open) futdChartDraw(); }, 50);
+}
+
+function futdSetTF(el, tf) {
+  FUTD.chart.tf = tf;
+  FUTD.chart.candles = [];
+  FUTD.chart.viewStart = null;
+  document.querySelectorAll('.futd-tf-label').forEach(e => e.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const symEl = document.getElementById('futdChartHdrSym');
+  if (symEl) symEl.textContent = FUTD.symbolCoin + 'USDT';
+  futdChartLoad();
+}
+
+function futdIndToggle(ind) {
+  FUTD.chart.indicator = FUTD.chart.indicator === ind ? null : ind;
+  ['RSI','MACD','BB','EMA'].forEach(k => {
+    const btn = document.getElementById('futdInd' + k);
+    if (btn) btn.classList.toggle('active', FUTD.chart.indicator === k);
+  });
+  const panel = document.getElementById('futdIndPanel');
+  if (panel) panel.style.display = FUTD.chart.indicator ? '' : 'none';
+  futdChartDraw();
+  futdChartRecalcPad();
+}
+
+async function futdChartLoad() {
+  const intervals = { '1m':60000,'3m':180000,'5m':300000,'15m':900000,'30m':1800000,'1h':3600000,'2h':7200000 };
+  const ms = intervals[FUTD.chart.tf] || 300000;
+  try {
+    const now  = Date.now();
+    const coin = FUTD.symbolCoin;
+    const d = await hlPost({
+      type: 'candleSnapshot',
+      req: { coin, interval: FUTD.chart.tf, startTime: now - ms * 120, endTime: now }
+    });
+    FUTD.chart.candles = Array.isArray(d) ? d : [];
+    futdChartDraw();
+  } catch (e) {
+    console.warn('[futdChartLoad] fail:', e.message);
+  } finally {
+    // [FIX-1] ตั้ง poll รอบถัดไปเสมอ ไม่ว่า fetch ครั้งนี้จะสำเร็จหรือ fail
+    // [FIX-CHART-ZOMBIE] ถ้า panel ถูก stop ระหว่าง async fetch → ไม่ตั้ง timer ใหม่
+    if (FUTD_CHART.pollTimer) { clearInterval(FUTD_CHART.pollTimer); FUTD_CHART.pollTimer = null; }
+    const _cp = document.getElementById('futdChartPanel');
+    if (_cp && _cp.classList.contains('active') && _cp.style.display !== 'none') {
+      FUTD_CHART.pollTimer = setInterval(() => futdChartLoad(), Math.min(ms, 60000));
+    }
+  }
+}
+
+function futdChartDraw() {
+  const candles = FUTD.chart.candles;
+  const wrap    = document.getElementById('futdChartWrap');
+  const canvas  = document.getElementById('futdChartCanvas');
+  if (!canvas || !wrap || !candles.length) return;
+
+  // [FIX-CHART-HIDDEN] panel ซ่อน → clientWidth=0 → canvas.width=0 → ลบ pixels ทิ้ง — ข้าม draw
+  const W = wrap.clientWidth;
+  if (!W) return;
+  const H = FUTD.chart.wrapH;
+  canvas.width  = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, W, H);
+
+  // [FIX-4] Watermark Logo — เหมือน Contract ต้นฉบับ (ใช้ _chartLogoImg/_chartLogoReady ตัวเดียวกัน)
+  if (typeof _chartLogoReady !== 'undefined' && _chartLogoReady && _chartLogoImg.complete) {
+    const logoSize = Math.min(W, H) * 0.48;
+    const logoX = W / 2 - logoSize / 2;
+    const logoY = H / 2 - logoSize / 2;
+    ctx.save();
+    ctx.globalAlpha = 0.055;
+    ctx.filter = 'blur(0.5px)';
+    ctx.drawImage(_chartLogoImg, logoX, logoY, logoSize, logoSize);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 0.07;
+    ctx.drawImage(_chartLogoImg, logoX, logoY, logoSize, logoSize);
+    ctx.restore();
+  }
+
+  // Visible slice — ใช้ viewStart สำหรับ pan; null = show latest
+  const vis   = Math.min(FUTD.chart.visCount, candles.length);
+  const start = FUTD.chart.viewStart !== null
+    ? Math.max(0, Math.min(candles.length - vis, FUTD.chart.viewStart))
+    : Math.max(0, candles.length - vis);
+  // auto-reset viewStart ถ้า pan มาถึงขวาสุดแล้ว
+  if (FUTD.chart.viewStart !== null && start >= candles.length - vis) {
+    FUTD.chart.viewStart = null;
+  }
+  const slice = candles.slice(start, start + vis);
+  if (!slice.length) return;
+
+  const highs = slice.map(c => parseFloat(c.h || c.high));
+  const lows  = slice.map(c => parseFloat(c.l || c.low));
+  const maxP  = Math.max(...highs);
+  const minP  = Math.min(...lows);
+  const range = maxP - minP || 1;
+  const pad   = { t: 16, b: 16, l: 2, r: 44 };
+  const cW    = (W - pad.l - pad.r) / slice.length;
+
+  const toY = price => pad.t + ((maxP - price) / range) * (H - pad.t - pad.b);
+
+  // MA helper
+  const ma = (arr, n) => arr.map((_, i) => {
+    if (i < n - 1) return null;
+    const s = arr.slice(i - n + 1, i + 1).map(c => parseFloat(c.c || c.close));
+    return s.reduce((a, b) => a + b, 0) / n;
+  });
+  const closes = candles.map(c => ({ c: c.c || c.close }));
+  const ma7  = ma(closes, 7).slice(start,  start + vis);
+  const ma25 = ma(closes, 25).slice(start, start + vis);
+  const ma99 = ma(closes, 99).slice(start, start + vis);
+
+  // Draw MA lines
+  [[ma7,'#f0a500','futdMa7'],[ma25,'#e040fb','futdMa25'],[ma99,'#26c6da','futdMa99']].forEach(([maArr, color, lblId]) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
+    let first = true;
+    maArr.forEach((v, i) => {
+      if (v === null) return;
+      const x = pad.l + i * cW + cW / 2;
+      const y = toY(v);
+      first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      first = false;
+    });
+    ctx.stroke();
+    const last = maArr.filter(v => v !== null).pop();
+    if (last) {
+      const lbl = document.getElementById(lblId);
+      if (lbl) lbl.textContent = ' ' + last.toFixed(1);
+    }
+  });
+
+  // Draw candles
+  slice.forEach((c, i) => {
+    const o = parseFloat(c.o || c.open);
+    const h = parseFloat(c.h || c.high);
+    const l = parseFloat(c.l || c.low);
+    const cl = parseFloat(c.c || c.close);
+    const bull = cl >= o;
+    const color = bull ? '#0ecb81' : '#f6465d';
+    ctx.fillStyle = color; ctx.strokeStyle = color;
+
+    const x  = pad.l + i * cW;
+    const xm = x + cW / 2;
+    // Wick
+    ctx.beginPath();
+    ctx.moveTo(xm, toY(h));
+    ctx.lineTo(xm, toY(l));
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Body
+    const bodyTop = toY(Math.max(o, cl));
+    const bodyBot = toY(Math.min(o, cl));
+    const bH = Math.max(1, bodyBot - bodyTop);
+    const bW = Math.max(1, cW * 0.7);
+    ctx.fillRect(x + (cW - bW) / 2, bodyTop, bW, bH);
+  });
+
+  // Price axis
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    const price = maxP - f * range;
+    const y     = toY(price);
+    ctx.fillText(price.toFixed(1), W - 2, y + 3);
+  });
+
+  // Current price line
+  const lastClose = parseFloat(slice[slice.length - 1].c || slice[slice.length - 1].close);
+  const curY = toY(lastClose);
+  const curLine = document.getElementById('futdCurLine');
+  const curTag  = document.getElementById('futdCurTag');
+  if (curLine) curLine.style.top = curY + 'px';
+  if (curTag)  { curTag.style.top = (curY - 8) + 'px'; curTag.textContent = lastClose.toFixed(2); }
+
+  // [FIX-3] Position Lines — Entry / TP / SL วาดเป็น filled pill เหมือน Contract ต้นฉบับ
+  // (เดิม: label เป็นตัวหนังสือธรรมดาชิดซ้าย ไม่มีพื้นหลัง — ไม่ตรงกับ 📋 Contract)
+  const futdPositions = (FUTD.status && FUTD.status.positions) || [];
+  futdPositions.forEach(p => {
+    const coin  = (p.symbol || '').replace('USDT', '');
+    if (coin !== FUTD.symbolCoin) return; // แสดงเฉพาะเหรียญที่กำลังดูกราฟ
+    const entryP = parseFloat(p.entry_price) || 0;
+    const tp     = parseFloat(p.tp)          || 0;
+    const sl     = parseFloat(p.sl)          || 0;
+    const size   = parseFloat(p.size)        || 0;
+    const isLong = p.side === 'long';
+    const entryCol = isLong ? '#0ecb81' : '#f6465d';
+
+    // Unrealized PNL — คำนวณแบบเดียวกับ futdRenderPositions
+    const markP = (FUTD.prices && FUTD.prices[coin]) || 0;
+    let upnl = 0;
+    if (markP > 0 && entryP > 0 && size > 0) {
+      upnl = isLong ? (markP - entryP) * size : (entryP - markP) * size;
+    }
+
+    // Helper — เส้นแนวนอน + pill ราคาทึบสีชิดขวา (เหมือน Contract ต้นฉบับ)
+    const drawPriceTag = (price, bg, dash, textColor) => {
+      if (!price || price < minP * 0.98 || price > maxP * 1.02) return null; // นอก range → ข้าม
+      const y = toY(price);
+      ctx.save();
+      ctx.strokeStyle = bg;
+      ctx.lineWidth   = dash ? 0.9 : 1.2;
+      ctx.setLineDash(dash ? [4, 4] : [5, 3]);
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W - pad.r - 2, y); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+
+      // Price tag — filled rounded rect ชิดขวา (แนว price axis)
+      ctx.font = 'bold 10px monospace';
+      const priceTxt = price.toLocaleString('en', { maximumFractionDigits: 2 });
+      const tagX = W - pad.r + 2, tagW = pad.r - 4, tagY = y - 9;
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(tagX, tagY, tagW, 18, 3); else ctx.rect(tagX, tagY, tagW, 18);
+      ctx.fill();
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'left';
+      ctx.fillText(priceTxt, tagX + 3, y + 4);
+      ctx.restore();
+      return y;
+    };
+
+    // Entry line — pill ราคาขวา + tag PNL/Leverage ฝั่งซ้าย (เหมือน Contract)
+    const ey = drawPriceTag(entryP, entryCol, false, isLong ? '#000' : '#fff');
+    if (ey !== null) {
+      ctx.save();
+      ctx.font = 'bold 9.5px monospace';
+      const pnlSign = upnl >= 0 ? '+' : '';
+      const pnlTxt  = 'PNL ' + pnlSign + upnl.toFixed(2);
+      const pnlBg   = upnl >= 0 ? 'rgba(14,203,129,0.88)' : 'rgba(246,70,93,0.88)';
+      const pnlW = ctx.measureText(pnlTxt).width + 10;
+      const tagH = 16, tagY = ey - tagH / 2;
+      ctx.fillStyle = pnlBg;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(2, tagY, pnlW, tagH, 3); else ctx.rect(2, tagY, pnlW, tagH);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.fillText(pnlTxt, 6, ey + 3.5);
+
+      // Leverage tag — ติดกับ PNL
+      ctx.font = 'bold 8.5px monospace';
+      const levTxt = (p.lev || '') + 'x';
+      const levW = ctx.measureText(levTxt).width + 8;
+      const levX = 2 + pnlW + 2;
+      ctx.fillStyle = 'rgba(43,49,57,0.92)';
+      ctx.strokeStyle = entryCol;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(levX, tagY, levW, tagH, 3); else ctx.rect(levX, tagY, levW, tagH);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = entryCol;
+      ctx.fillText(levTxt, levX + 4, ey + 3.5);
+      ctx.restore();
+    }
+
+    if (tp > 0) drawPriceTag(tp, 'rgba(14,203,129,0.88)', true, '#000');
+    if (sl > 0) drawPriceTag(sl, 'rgba(246,70,93,0.88)', true, '#fff');
+  });
+
+  // OHLC labels
+  const last = slice[slice.length - 1];
+  const setOhlc = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  setOhlc('futdChO', 'O:' + parseFloat(last.o || last.open).toFixed(2));
+  setOhlc('futdChH', 'H:' + parseFloat(last.h || last.high).toFixed(2));
+  setOhlc('futdChL', 'L:' + parseFloat(last.l || last.low).toFixed(2));
+  setOhlc('futdChC', 'C:' + parseFloat(last.c || last.close).toFixed(2));
+
+  // Volume histogram
+  futdDrawVolume(slice);
+
+  // Indicator
+  // [FIX-2] ส่ง closes ทั้งหมด + start/vis แทนการตัด slice มาก่อน เพื่อให้ RSI/MACD/BB
+  // มี look-back period ที่ถูกต้อง (เดิมส่งแค่ closesSlice ที่ตัดมาแล้ว ทำให้ค่าต้นๆ ของ indicator
+  // เป็น null ไปกินพื้นที่ครึ่งซ้ายของกราฟ indicator)
+  if (FUTD.chart.indicator) futdDrawIndicator(closes, start, vis);
+
+  // Candle countdown
+  futdUpdateCandleCountdown(last);
+}
+
+function futdDrawVolume(slice) {
+  const canvas = document.getElementById('futdVolCanvas');
+  if (!canvas) return;
+  const W = (document.getElementById('futdVolWrap') || canvas.parentElement)?.clientWidth || 375;
+  const H = 36;
+  canvas.width  = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, W, H);
+  const vols = slice.map(c => parseFloat(c.v || c.volume || 0));
+  const maxV = Math.max(...vols) || 1;
+  const cW   = slice.length > 0 ? W / slice.length : 4;
+  slice.forEach((c, i) => {
+    const bull = parseFloat(c.c || c.close) >= parseFloat(c.o || c.open);
+    ctx.fillStyle = bull ? 'rgba(14,203,129,.5)' : 'rgba(246,70,93,.5)';
+    const bH = (vols[i] / maxV) * H;
+    ctx.fillRect(i * cW, H - bH, Math.max(1, cW * 0.8), bH);
+  });
+}
+
+function futdDrawIndicator(closesAll, start, vis) {
+  const ind    = FUTD.chart.indicator;
+  const canvas = document.getElementById('futdIndCanvas');
+  if (!canvas || !ind) return;
+  const W = canvas.parentElement?.clientWidth || 375;
+  const H = 60;
+  canvas.width  = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, W, H);
+
+  // [FIX-2] คำนวณจาก closes ทั้งหมด (มี look-back ก่อนช่วงที่มองเห็น) แล้วค่อยตัดมาแสดงเฉพาะ
+  // ช่วง visible — เดิมคำนวณจาก closesSlice ที่ตัดมาก่อนแล้ว ทำให้ periods แรกๆ (RSI 14 /
+  // MACD 26 / BB 20) เป็น null ไปกินพื้นที่ครึ่งซ้ายของกราฟ indicator
+  const closeArrFull = closesAll.map(c => parseFloat(c.c || c.close));
+  const cW = vis > 0 ? W / vis : 4;
+
+  if (ind === 'RSI') {
+    // RSI-14
+    const period = 14;
+    const rsiFull = [];
+    for (let i = 0; i < closeArrFull.length; i++) {
+      if (i < period) { rsiFull.push(null); continue; }
+      let gains = 0, losses = 0;
+      for (let j = i - period + 1; j <= i; j++) {
+        const diff = closeArrFull[j] - closeArrFull[j - 1];
+        if (diff > 0) gains += diff; else losses -= diff;
+      }
+      const avgG = gains / period; const avgL = losses / period;
+      rsiFull.push(avgL === 0 ? 100 : 100 - (100 / (1 + avgG / avgL)));
+    }
+    const rsi = rsiFull.slice(start, start + vis);
+    const lastRsi = rsi.filter(v => v !== null).pop() || 0;
+    const lblEl = document.getElementById('futdIndLabel');
+    const valEl = document.getElementById('futdIndVal');
+    if (lblEl) lblEl.textContent = 'RSI(14)';
+    if (valEl) { valEl.textContent = lastRsi.toFixed(2); valEl.style.color = lastRsi > 70 ? 'var(--r)' : lastRsi < 30 ? 'var(--g)' : 'var(--t1)'; }
+    // Overbought/oversold lines
+    ctx.strokeStyle = 'rgba(240,185,11,.3)'; ctx.lineWidth = 1;
+    [[30,H*(1-30/100)],[70,H*(1-70/100)]].forEach(([,y]) => {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    });
+    // RSI line
+    ctx.strokeStyle = '#f0a500'; ctx.lineWidth = 1.5; ctx.beginPath();
+    let first = true;
+    rsi.forEach((v, i) => {
+      if (v === null) return;
+      const x = i * cW + cW / 2; const y = H * (1 - v / 100);
+      first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
+    });
+    ctx.stroke();
+  }
+
+  // [v2.51] MACD (12, 26, 9)
+  if (ind === 'MACD') {
+    const ema = (arr, n) => {
+      const k = 2 / (n + 1); const result = [];
+      arr.forEach((v, i) => {
+        if (i === 0) { result.push(v); return; }
+        result.push(v * k + result[i - 1] * (1 - k));
+      });
+      return result;
+    };
+    const ema12Full = ema(closeArrFull, 12);
+    const ema26Full = ema(closeArrFull, 26);
+    const macdLineFull   = closeArrFull.map((_, i) => (i < 25 ? null : ema12Full[i] - ema26Full[i]));
+    const validMacdFull  = macdLineFull.map(v => v === null ? 0 : v);
+    const signalLineFull = ema(validMacdFull, 9).map((v, i) => macdLineFull[i] === null ? null : v);
+    const histogramFull  = macdLineFull.map((v, i) => (v !== null && signalLineFull[i] !== null) ? v - signalLineFull[i] : null);
+
+    const macdLine   = macdLineFull.slice(start, start + vis);
+    const signalLine = signalLineFull.slice(start, start + vis);
+    const histogram  = histogramFull.slice(start, start + vis);
+
+    const allVals = [...macdLine, ...signalLine, ...histogram].filter(v => v !== null);
+    if (!allVals.length) return;
+    const maxV = Math.max(...allVals.map(Math.abs)) || 1;
+    const midY = H / 2;
+    const scaleV = v => midY - (v / maxV) * (midY - 4);
+
+    // Zero line
+    ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(0, midY); ctx.lineTo(W, midY); ctx.stroke();
+
+    // Histogram bars
+    histogram.forEach((v, i) => {
+      if (v === null) return;
+      const x = i * cW; const y = scaleV(v);
+      ctx.fillStyle = v >= 0 ? 'rgba(14,203,129,.55)' : 'rgba(246,70,93,.55)';
+      ctx.fillRect(x, Math.min(midY, y), Math.max(1, cW * 0.7), Math.abs(midY - y));
+    });
+
+    // MACD line (blue)
+    ctx.strokeStyle = '#2196f3'; ctx.lineWidth = 1.5; ctx.beginPath();
+    let first2 = true;
+    macdLine.forEach((v, i) => {
+      if (v === null) return;
+      const x = i * cW + cW / 2; const y = scaleV(v);
+      first2 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first2 = false;
+    });
+    ctx.stroke();
+
+    // Signal line (orange)
+    ctx.strokeStyle = '#f0a500'; ctx.lineWidth = 1; ctx.beginPath();
+    let first3 = true;
+    signalLine.forEach((v, i) => {
+      if (v === null) return;
+      const x = i * cW + cW / 2; const y = scaleV(v);
+      first3 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first3 = false;
+    });
+    ctx.stroke();
+
+    const lastMacd = macdLine.filter(v => v !== null).pop() || 0;
+    const lastSig  = signalLine.filter(v => v !== null).pop() || 0;
+    const lastHist = histogram.filter(v => v !== null).pop() || 0;
+    const lblEl = document.getElementById('futdIndLabel');
+    const valEl = document.getElementById('futdIndVal');
+    if (lblEl) lblEl.textContent = 'MACD(12,26,9)';
+    if (valEl) {
+      valEl.textContent = `MACD:${lastMacd.toFixed(2)} Sig:${lastSig.toFixed(2)} Hist:${lastHist.toFixed(2)}`;
+      valEl.style.color = lastHist >= 0 ? 'var(--g)' : 'var(--r)';
+    }
+  }
+
+  // [v2.51] Bollinger Bands (20, 2)
+  if (ind === 'BB') {
+    const period = 20; const mult = 2;
+    const upperFull = [], middleFull = [], lowerFull = [];
+    for (let i = 0; i < closeArrFull.length; i++) {
+      if (i < period - 1) { upperFull.push(null); middleFull.push(null); lowerFull.push(null); continue; }
+      const sl2 = closeArrFull.slice(i - period + 1, i + 1);
+      const avg = sl2.reduce((a, b) => a + b, 0) / period;
+      const std = Math.sqrt(sl2.reduce((s, v) => s + (v - avg) ** 2, 0) / period);
+      middleFull.push(avg); upperFull.push(avg + mult * std); lowerFull.push(avg - mult * std);
+    }
+    const upper  = upperFull.slice(start, start + vis);
+    const middle = middleFull.slice(start, start + vis);
+    const lower  = lowerFull.slice(start, start + vis);
+
+    const allBB = [...upper, ...lower].filter(v => v !== null);
+    if (!allBB.length) return;
+    const maxB = Math.max(...allBB); const minB = Math.min(...allBB);
+    const rangeB = maxB - minB || 1;
+    const toYB = v => 4 + ((maxB - v) / rangeB) * (H - 8);
+
+    // Shaded band area
+    ctx.fillStyle = 'rgba(33,150,243,.07)';
+    ctx.beginPath();
+    upper.forEach((v, i) => { if (v === null) return; const x = i * cW + cW / 2; i === 0 || upper[i-1] === null ? ctx.moveTo(x, toYB(v)) : ctx.lineTo(x, toYB(v)); });
+    [...lower].reverse().forEach((v, i) => {
+      const origI = lower.length - 1 - i;
+      if (v === null) return;
+      ctx.lineTo(origI * cW + cW / 2, toYB(v));
+    });
+    ctx.closePath(); ctx.fill();
+
+    // Upper / Middle / Lower lines
+    [[upper,'rgba(33,150,243,.8)',1],[middle,'rgba(240,185,11,.8)',1],[lower,'rgba(33,150,243,.8)',1]].forEach(([arr, color, lw]) => {
+      ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
+      let fst = true;
+      arr.forEach((v, i) => {
+        if (v === null) return;
+        const x = i * cW + cW / 2; const y = toYB(v);
+        fst ? ctx.moveTo(x, y) : ctx.lineTo(x, y); fst = false;
+      });
+      ctx.stroke();
+    });
+
+    const lastU = upper.filter(v=>v!==null).pop()||0;
+    const lastM = middle.filter(v=>v!==null).pop()||0;
+    const lastL = lower.filter(v=>v!==null).pop()||0;
+    const lblEl = document.getElementById('futdIndLabel');
+    const valEl = document.getElementById('futdIndVal');
+    if (lblEl) lblEl.textContent = 'BB(20,2)';
+    if (valEl) {
+      valEl.textContent = `U:${lastU.toFixed(1)} M:${lastM.toFixed(1)} L:${lastL.toFixed(1)}`;
+      valEl.style.color = 'var(--t1)';
+    }
+  }
+
+  // [v2.51] EMA (9, 21)
+  if (ind === 'EMA') {
+    const ema = (arr, n) => {
+      const k = 2 / (n + 1); const result = [];
+      arr.forEach((v, i) => { result.push(i === 0 ? v : v * k + result[i - 1] * (1 - k)); });
+      return result;
+    };
+    const ema9Full  = ema(closeArrFull, 9);
+    const ema21Full = ema(closeArrFull, 21);
+    const ema9  = ema9Full.slice(start, start + vis);
+    const ema21 = ema21Full.slice(start, start + vis);
+    const allE  = [...ema9, ...ema21];
+    const maxE  = Math.max(...allE); const minE = Math.min(...allE);
+    const rangeE = maxE - minE || 1;
+    const toYE  = v => 4 + ((maxE - v) / rangeE) * (H - 8);
+
+    [[ema9,'#0ecb81','EMA9'],[ema21,'#f0a500','EMA21']].forEach(([arr, color, lbl]) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+      let fst = true;
+      arr.forEach((v, i) => {
+        const x = i * cW + cW / 2; const y = toYE(v);
+        fst ? ctx.moveTo(x, y) : ctx.lineTo(x, y); fst = false;
+      });
+      ctx.stroke();
+    });
+
+    const lastE9  = ema9[ema9.length - 1]   || 0;
+    const lastE21 = ema21[ema21.length - 1]  || 0;
+    const lblEl = document.getElementById('futdIndLabel');
+    const valEl = document.getElementById('futdIndVal');
+    if (lblEl) lblEl.textContent = 'EMA(9,21)';
+    if (valEl) {
+      valEl.textContent = `EMA9:${lastE9.toFixed(1)}  EMA21:${lastE21.toFixed(1)}`;
+      valEl.style.color = lastE9 > lastE21 ? 'var(--g)' : 'var(--r)';
+    }
+  }
+}
+
+function futdUpdateCandleCountdown(lastCandle) {
+  const el = document.getElementById('futdCandleCountdown');
+  if (!el || !lastCandle) return;
+  const intervals = { '1m':60,'3m':180,'5m':300,'15m':900,'30m':1800,'1h':3600,'2h':7200 };
+  const tfSec = intervals[FUTD.chart.tf] || 300;
+  const openT  = parseInt(lastCandle.t || lastCandle.time || 0);
+  const closeT = openT + tfSec * 1000;
+  const remaining = Math.max(0, Math.floor((closeT - Date.now()) / 1000));
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  el.textContent = m + ':' + String(s).padStart(2, '0');
 }
 </script>
 </body>
