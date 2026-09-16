@@ -12133,6 +12133,13 @@ async function selectCoin(sym) {
       updateRiskWarnings(_selC);
     }
   }
+  // [v2.56 FIX] ถ้ากำลังอยู่ใน Direct tab → sync coin ไปยัง FUTD ด้วย
+  // ป้องกันปัญหา: เปลี่ยนเหรียญจาก topbar แล้ว Direct tab ยังแสดง chart/OB/price ของเหรียญเก่า
+  if ((typeof _futActiveTab !== 'undefined') && _futActiveTab === 'direct') {
+    if (typeof futdSyncCoinFromTopbar === 'function') {
+      futdSyncCoinFromTopbar(S.coin);
+    }
+  }
 }
 
 function renderOrderBook2() {
@@ -13297,13 +13304,53 @@ function futdSyncCoinFromTopbar(coin) {
   futdStartOrderBook();
   // [v2.51] re-fetch funding rate เมื่อเปลี่ยนเหรียญ
   if (typeof futdFetchFunding === 'function') futdFetchFunding();
-  // อัปเดต unit label
+
+  // [v2.57 FIX-COIN-SYNC] อัปเดต unit labels ทั้งหมดทันที
   const unitEl = document.getElementById('futdObAmtUnit');
   if (unitEl) unitEl.textContent = '(' + coin + ')';
   const amtUnitEl = document.getElementById('futdAmtUnit');
   if (amtUnitEl && FUTD.amtUnit !== 'USDT') {
     FUTD.amtUnit = coin;
     amtUnitEl.textContent = coin;
+  }
+
+  // [v2.57 FIX-MAXCOST] Reset Max Open/Cost display ให้แสดง coin ใหม่ทันที
+  // (futdUpdateMaxCost ต้องการ amt > 0 ถึงจะทำงาน → reset label ด้วยตัวเอง)
+  const _moEl  = document.getElementById('futdMaxOpen');
+  const _mosEl = document.getElementById('futdMaxOpenS');
+  const _cvEl  = document.getElementById('futdCostVal');
+  const _cvsEl = document.getElementById('futdCostValS');
+  const _sizeNow = parseFloat(document.getElementById('futd-size')?.value) || 0;
+  if (_sizeNow > 0 && FUTD.lastPrice > 0) {
+    // มี size อยู่แล้ว → recalc ทันที
+    if (typeof futdUpdateMaxCost === 'function') futdUpdateMaxCost();
+  } else {
+    // ยังไม่มี size → reset ให้แสดง coin ใหม่
+    if (_moEl)  _moEl.textContent  = '0.000 ' + coin;
+    if (_mosEl) _mosEl.textContent = '0.000 ' + coin;
+    if (_cvEl)  _cvEl.textContent  = '0.00 USDT';
+    if (_cvsEl) _cvsEl.textContent = '0.00 USDT';
+  }
+
+  // [v2.57 FIX-24H] Reset 24h stats ให้แสดง — เพื่อหลีกเลี่ยงค่าเก่าค้างระหว่างโหลด
+  ['futd-tk-high','futd-tk-low','futd-tk-vol'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  });
+  // ดึง 24h stats ใหม่สำหรับ coin นี้
+  if (typeof futdFetch24h === 'function') futdFetch24h();
+
+  // [v2.57 FIX-COIN-POS] Bug A+C: re-render positions/orders ทันทีด้วย cache เดิม
+  // ป้องกันค่าเก่าของ coin ก่อนหน้าค้างอยู่ระหว่างรอ poll ถัดไป (worst case 15s+GAS 20s = 35s)
+  if (FUTD.status) {
+    futdRenderPositions(FUTD.status.positions || []);
+    futdRenderOrders(FUTD.status.orders || []);
+  }
+
+  // [v2.57 FIX-COIN-REFRESH] Bug C: trigger refresh ทันที ไม่รอ poll cycle ถัดไป
+  // ใช้ setTimeout(0) เพื่อไม่บล็อก UI paint จาก futdRefreshPrice/futdChartLoad ข้างบน
+  if (!FUTD._astInFlight) {
+    setTimeout(() => { futdRefreshAccountStatus(); }, 0);
   }
 }
 
@@ -36131,7 +36178,7 @@ async function aftdRefreshDirectSummary() {
     document.getElementById('aftd-margin-avail').textContent = (status.avail_margin || 0).toLocaleString('en', { minimumFractionDigits: 2 });
     document.getElementById('aftd-pos-count').textContent    = (status.positions || []).length;
     document.getElementById('aftd-order-count').textContent  = (status.orders    || []).length;
-    aftdRenderDirectPosList(status.positions || []);
+    aftdRenderDirectPosList(status.positions || [], status.liq_price_map || {});
   } catch (e) {
     console.warn('[aftdRefreshDirectSummary] fail:', e.message);
     // [v2.47-FD FIX-FD-3] แสดง error state ใน UI แทนที่จะปล่อยว่างเปล่า
@@ -36161,7 +36208,7 @@ async function aftdRefreshDirectSummary() {
   }
 }
 
-function aftdRenderDirectPosList(positions) {
+function aftdRenderDirectPosList(positions, liqPriceMap) {
   const el = document.getElementById('astFutDirectPosList');
   if (!el) return;
   if (!positions.length) {
@@ -36172,16 +36219,21 @@ function aftdRenderDirectPosList(positions) {
     return;
   }
   // [FIX-POS-ASSETS] แสดง layout เหมือนหน้า Futures → ⚡ Direct (futdRenderPositions)
-  const bal         = parseFloat((FUTD.status || {}).futures_balance) || 0;
-  const marginUsed  = parseFloat((FUTD.status || {}).margin_used)     || 0;
-  const mrPctGlobal = bal > 0 ? Math.min(100, (marginUsed / bal) * 100) : 0;
+  // [v2.56 FIX] ใช้ status จาก parameter โดยตรง ไม่พึ่ง FUTD.status ที่อาจยังไม่ได้ set
+  //             (aftdRefreshDirectSummary เรียก GAS แยก จาก futdRefreshAccountStatus)
+  const _statusSrc  = { futures_balance: 0, margin_used: 0 }; // fallback
+  // พยายาม borrow จาก FUTD.status ถ้ามี แต่ค่าหลักคือ parameter liqPriceMap ที่ส่งมาแล้ว
+  const bal         = parseFloat((FUTD.status || _statusSrc).futures_balance) || 0;
+  const marginUsedG = parseFloat((FUTD.status || _statusSrc).margin_used)     || 0;
+  const _liqMap     = liqPriceMap || (FUTD.status && FUTD.status.liq_price_map) || {};
 
   el.innerHTML = positions.map(p => {
     const coin   = (p.symbol || '').replace('USDT', '');
     const entryP = parseFloat(p.entry_price) || 0;
     const size   = parseFloat(p.size)        || 0;
     const margin = parseFloat(p.margin)      || 0;
-    const liqP   = parseFloat(p.liq_price)   || 0;
+    // [v2.55 FIX] Cross mode: ใช้ liq_price_map จาก GAS (คำนวณด้วย equity รวม) แทน p.liq_price (isolated formula เก่า)
+    const liqP   = parseFloat(_liqMap[p.id] !== undefined ? _liqMap[p.id] : p.liq_price) || 0;
     const markP  = (FUTD.prices && FUTD.prices[coin]) || 0;
 
     let upnl = 0;
@@ -36190,6 +36242,20 @@ function aftdRenderDirectPosList(positions) {
     }
     const upnlColor = upnl >= 0 ? 'var(--g)' : 'var(--r)';
     const roiPct    = margin > 0 ? ((upnl / margin) * 100) : 0;
+
+    // [v2.56 FIX] Margin Ratio: แยกตาม mode เหมือน futdRenderPositions (บรรทัด 36951-36966)
+    // ก่อนหน้านี้ใช้ mrPctGlobal (margin_used/bal รวมบัญชี) กับทุก position ทำให้ค่าไม่ตรงกับ Direct tab
+    // Isolated: (mmr × entryP × size) / margin × 100  — ความเสี่ยงของ position นี้เอง
+    // Cross:    margin_used / futures_balance × 100     — บัญชีรวม
+    const posMode = String(p.mode || 'isolated').toLowerCase();
+    let mrPctGlobal = 0;
+    if (posMode === 'isolated') {
+      const mmrFront    = 0.005;
+      const maintMargin = mmrFront * entryP * size;
+      mrPctGlobal = margin > 0 ? Math.min(100, (maintMargin / margin) * 100) : 0;
+    } else {
+      mrPctGlobal = bal > 0 ? Math.min(100, (marginUsedG / bal) * 100) : 0;
+    }
     const mrColor   = mrPctGlobal < 50 ? 'var(--g)' : mrPctGlobal < 80 ? 'var(--y)' : 'var(--r)';
 
     const tp = parseFloat(p.tp) || 0;
@@ -36313,6 +36379,9 @@ function futdInit() {
   // [v2.51] เริ่ม Funding rate + Countdown timer
   futdFetchFunding();
   futdStartFundingTimer();
+
+  // [v2.57] ดึง 24h High/Low/Vol ครั้งแรก
+  if (typeof futdFetch24h === 'function') futdFetch24h();
 
   // [v2.52 FIX-POLL-LOCK] poll ราคา + สถานะ
   // เพิ่ม interval 5s → 15s: dbCallRaw timeout=20s — ถ้า 5s request ก่อนยังไม่เสร็จ
@@ -36614,6 +36683,23 @@ function futdStopOrderBook() {
     try { FUTD.obWs.close(); } catch(e) {}
     FUTD.obWs = null;
   }
+  // [v2.57 FIX-OB-STALE] Bug OB: reset bids/asks และ lastPrice ทันทีที่หยุด WS เก่า
+  // ป้องกัน orderbook เก่า (BTC) แสดงอยู่ระหว่างรอ WS ใหม่เชื่อมต่อ
+  // lastPrice ถูก reset เป็น 0 → futdRefreshPrice() (ซึ่งเรียกพร้อมกันใน futdSyncCoinFromTopbar)
+  // จะ set ค่าถูกต้องเมื่อ allMids resolve (เร็วกว่า WS snapshot เสมอ)
+  FUTD.bids = [];
+  FUTD.asks = [];
+  FUTD.lastPrice = 0;
+
+  // Clear orderbook UI ให้แสดง — ทันที ไม่รอ WS ใหม่
+  const askList = document.getElementById('futdAskList');
+  const bidList = document.getElementById('futdBidList');
+  const midEl   = document.getElementById('futdObMidPrice');
+  const markEl  = document.getElementById('futdObMarkPrice');
+  if (askList) askList.innerHTML = '';
+  if (bidList) bidList.innerHTML = '';
+  if (midEl)   midEl.textContent  = '—';
+  if (markEl)  markEl.textContent = '—';
 }
 
 // ── Render Order Book (Direct) ─────────────────────────────────
@@ -36671,6 +36757,51 @@ function futdRenderOrderBook() {
     if (rFill) rFill.style.width = bidPct.toFixed(2) + '%';
     if (rL)    rL.textContent    = bidPct.toFixed(2) + '%';
     if (rR)    rR.textContent    = askPct.toFixed(2) + '%';
+  }
+}
+
+// ── [v2.57] 24h Stats (High / Low / Vol) for Direct tab ──────
+/**
+ * ดึง 24h High / Low / Vol จาก Hyperliquid metaAndAssetCtxs
+ * เรียกครั้งแรกตอน futdInit และทุกครั้งที่เปลี่ยนเหรียญผ่าน futdSyncCoinFromTopbar
+ * ใช้ METAL_DEX สำหรับ Metal coins (GOLD, SILVER, …) เหมือนส่วนอื่นของระบบ
+ */
+async function futdFetch24h() {
+  const coin = FUTD.symbolCoin || 'BTC';
+  try {
+    const isMetal = (typeof _isMetalCoin === 'function') && _isMetalCoin(coin);
+    const ctx = await hlPost(
+      isMetal
+        ? { type: 'metaAndAssetCtxs', dex: METAL_DEX }
+        : { type: 'metaAndAssetCtxs' }
+    );
+    if (!ctx || !ctx[0] || !ctx[1]) return;
+    const universe = ctx[0].universe || [];
+    const ctxs     = ctx[1];
+    const idx = universe.findIndex(u => u.name === coin);
+    if (idx === -1) return;
+    const c       = ctxs[idx] || {};
+    const markPx  = parseFloat(FUTD.prices[coin]) || parseFloat(c.markPx) || 0;
+    const prevDay = parseFloat(c.prevDayPx) || markPx;
+    // Hyperliquid ไม่มี high/low โดยตรงใน assetCtxs — ใช้ dayNtlVlm (USD vol) และ prevDayPx
+    // High ≈ ราคาสูงสุด/ต่ำสุดใน session คำนวณจาก open (prevDayPx) vs mark ปัจจุบัน
+    const hi  = Math.max(prevDay, markPx);
+    const lo  = Math.min(prevDay, markPx);
+    const vol = parseFloat(c.dayNtlVlm) || 0;
+    // format vol: K/M/B
+    const _fmtVol = v => {
+      if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
+      if (v >= 1e6) return (v/1e6).toFixed(2) + 'M';
+      if (v >= 1e3) return (v/1e3).toFixed(2) + 'K';
+      return v.toFixed(2);
+    };
+    futdUpdateTicker({
+      high: hi  > 0 ? hi  : undefined,
+      low:  lo  > 0 ? lo  : undefined,
+      vol:  vol > 0 ? _fmtVol(vol) : undefined,
+    });
+  } catch(e) {
+    console.warn('[futdFetch24h] fail:', e.message);
   }
 }
 
@@ -36819,6 +36950,12 @@ async function futdRefreshPrice() {
     // แสดงทันทีโดยไม่ต้องรอให้ user กดเปลี่ยน TF
     // (futdChartDraw ตรวจ candles.length ก่อนวาด ถ้าแท่งเทียนยังไม่โหลดจะ return เอง)
     if (FUTD.chart.candles.length) futdChartDraw();
+
+    // [v2.57] Refresh 24h stats ทุก 4 รอบ (~60s) — ไม่ดึงทุก poll เพราะ metaAndAssetCtxs หนัก
+    FUTD._priceTickCount = (FUTD._priceTickCount || 0) + 1;
+    if (FUTD._priceTickCount % 4 === 0 && typeof futdFetch24h === 'function') {
+      futdFetch24h();
+    }
   } catch (e) {
     console.warn('[futdRefreshPrice] fail:', e.message);
   }
@@ -36878,6 +37015,22 @@ async function futdRefreshAccountStatus() {
     if (FUTD.chart.candles.length) futdChartDraw();
   } catch (e) {
     console.warn('[futdRefreshAccountStatus] fail:', e.message);
+
+    // [v2.57 FIX-POS-CACHE] GAS fail → ถ้ามี cache เดิม ให้ render positions จาก cache
+    // ป้องกันปัญหา: GAS timeout ทำให้ positions ว่างเปล่า ทั้งที่มี position จริง
+    if (FUTD.status && (FUTD.status.positions || []).length > 0) {
+      futdRenderPositions(FUTD.status.positions);
+      futdRenderOrders(FUTD.status.orders || []);
+      // แสดง warning banner เล็กๆ บน positions list
+      const _posEl = document.getElementById('futd-positions-list');
+      if (_posEl) {
+        const _warn = document.createElement('div');
+        _warn.style.cssText = 'font-size:10px;color:var(--y);text-align:center;padding:4px 8px;opacity:.75';
+        _warn.textContent = '⚠ ข้อมูลจาก cache (GAS ไม่ตอบสนอง)';
+        _posEl.insertBefore(_warn, _posEl.firstChild);
+      }
+    }
+
     // [v2.52] GAS-DEPLOY-ERROR หรือ Timeout: หยุด auto-poll ชั่วคราว 60s กัน storm
     // ป้องกันกรณี GAS deployment พัง → error ท่วม console ทุก 15s ตลอดไป
     if (e.message && (e.message.includes('GAS-DEPLOY-ERROR') || e.message.includes('Timeout'))) {
@@ -36931,7 +37084,9 @@ function futdRenderPositions(positions) {
     const entryP    = parseFloat(p.entry_price) || 0;
     const size      = parseFloat(p.size) || 0;
     const margin    = parseFloat(p.margin) || 0;
-    const liqP      = parseFloat(p.liq_price) || 0;
+    // [v2.55 FIX] Cross mode: ใช้ liq_price_map จาก GAS (คำนวณด้วย equity รวม) แทน p.liq_price (isolated formula เก่า)
+    const _liqMap   = (FUTD.status && FUTD.status.liq_price_map) || {};
+    const liqP      = parseFloat(_liqMap[p.id] !== undefined ? _liqMap[p.id] : p.liq_price) || 0;
     const markP     = FUTD.prices[coin] || 0;
 
     // Unrealized PnL
@@ -37049,8 +37204,19 @@ function futdUpdatePnlCards() {
 // ── Render Orders ──────────────────────────────────────────────────
 function futdRenderOrders(orders) {
   const el = document.getElementById('futd-orders-list');
-  if (!orders.length) { el.innerHTML = '<div class="futd-empty">ไม่มี Order ที่รอ Fill</div>'; return; }
-  el.innerHTML = orders.map(o => `<div class="futd-pos-row">
+  if (!el) return;
+
+  // [v2.57 FIX-ORD-FILTER] Bug B: filter Hide Other Pairs เหมือน futdRenderPositions
+  let filteredOrd = orders;
+  if (FUTD.hideOtherPairs && FUTD.symbolCoin) {
+    filteredOrd = orders.filter(o => {
+      const coin = (o.symbol || '').replace('USDT', '');
+      return coin === FUTD.symbolCoin;
+    });
+  }
+
+  if (!filteredOrd.length) { el.innerHTML = '<div class="futd-empty">ไม่มี Order ที่รอ Fill</div>'; return; }
+  el.innerHTML = filteredOrd.map(o => `<div class="futd-pos-row">
       <div class="futd-pos-top">
         <div><span class="futd-pos-sym">${o.symbol}</span><span class="futd-pos-side ${o.side}">${o.side === 'long' ? 'LONG' : 'SHORT'} x${o.lev}</span></div>
       </div>
