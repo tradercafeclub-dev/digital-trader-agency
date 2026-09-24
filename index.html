@@ -8171,18 +8171,21 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 .futd-chart-drag::after{content:'';width:36px;height:4px;border-radius:2px;background:var(--bl)}
 .futd-chart-collapsed-hdr{display:flex;align-items:center;gap:4px;padding:4px 10px;cursor:pointer;min-height:28px;display:none}
 .futd-chart-collapsed-hdr.show{display:flex}
-.futd-tf-bar{display:flex;align-items:center;gap:1px;padding:4px 8px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.futd-tf-bar{display:flex;align-items:center;padding:6px 6px 0;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--border);background:var(--bg)}
 .futd-tf-bar::-webkit-scrollbar{display:none}
-.futd-tf-label{padding:3px 7px;border-radius:4px;font-size:11px;font-family:var(--mono);color:var(--t2);cursor:pointer;white-space:nowrap;flex-shrink:0}
-.futd-tf-label.active{background:var(--y);color:#000;font-weight:700}
-.futd-ma-row{display:flex;gap:10px;padding:2px 8px;font-size:10px;font-family:var(--mono)}
+/* .futd-tf-label เหมือน .tf-label — สีและ style เดียวกัน เพื่อ visual consistency ข้าม tab */
+.futd-tf-label{font-size:11px;color:var(--t2);padding:4px 5px;border-radius:var(--rsm);cursor:pointer;white-space:nowrap;user-select:none;flex-shrink:0;transition:all .15s;font-weight:500}
+.futd-tf-label:hover{color:var(--t1);background:var(--bg4)}
+.futd-tf-label.active{color:var(--t1);background:var(--bg4);font-weight:600}
+/* .futd-ma-row: ใช้ class .ma-row เป็นหลักแล้ว — คลาสนี้แค่ override padding เล็กน้อย */
+.futd-ma-row{padding:2px 8px}
 .futd-chart-canvas-wrap{position:relative;width:100%}
 /* [FIX-TXN-TOOLTIP] futdChTooltip ถูกย้ายออกนอก chart-wrap → ใช้ position:fixed เพื่อลอยเหนือทุก layer */
 #futdChTooltip{position:fixed!important;z-index:1200!important}
 .futd-vol-wrap{position:relative;width:100%;height:44px;background:var(--bg);border-top:1px solid rgba(43,49,57,.5);flex-shrink:0}
-.futd-ind-bar{display:flex;align-items:center;gap:4px;padding:3px 8px;border-top:1px solid var(--border)}
-.futd-ind-btn{font-size:10px;font-weight:600;font-family:var(--mono);color:var(--t3);padding:3px 6px;border-radius:4px;cursor:pointer;transition:all .15s;user-select:none;border:1px solid transparent}
-.futd-ind-btn.active{color:var(--y);background:var(--y-10);border-color:var(--y-25)}
+/* .futd-ind-bar: ใช้ class .ind-toggle-bar เป็นหลักแล้ว — override gap เล็กน้อย */
+.futd-ind-bar{gap:1px}
+/* .futd-ind-btn: ใช้ class .ind-toggle-btn เป็นหลักแล้ว — ไม่ต้อง override (shared style) */
 
 /* ══════════════════════════════
    Direct Tab — New Layout CSS (v2.50)
@@ -8230,8 +8233,8 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
     <!-- TF bar -->
     <div class="futd-tf-bar" id="futdTFBar">
       <!-- ⤡ Expand fullscreen — leftmost (เหมือน Contract tab) -->
-      <span onclick="futdExpandChart()" style="margin-left:0;margin-right:2px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;padding:2px 3px;opacity:.7" title="เต็มจอ">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+      <span class="tf-exp" onclick="futdExpandChart()" style="margin-left:0;margin-right:2px" title="เต็มจอ">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </span>
       <span class="futd-tf-label" onclick="futdSetTF(this,'1s')">1s</span>
       <span class="futd-tf-label" onclick="futdSetTF(this,'1m')">1m</span>
@@ -8250,15 +8253,17 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
         <span id="futdChartArrOpen">▲</span>
       </span>
     </div>
-    <!-- MA row -->
-    <div class="futd-ma-row">
-      <span style="color:#f0a500">MA(7):<span id="futdMa7"> —</span></span>
-      <span style="color:#e040fb">MA(25):<span id="futdMa25"> —</span></span>
-      <span style="color:#26c6da">MA(99):<span id="futdMa99"> —</span></span>
+    <!-- MA row — เหมือน Contract (.ma-row .ma-item .ma-sq) -->
+    <div class="ma-row futd-ma-row">
+      <div class="ma-item"><div class="ma-sq" style="background:#f0a500"></div><span style="color:#f0a500">MA(7):<span id="futdMa7"> —</span></span></div>
+      <div class="ma-item"><div class="ma-sq" style="background:#e040fb"></div><span style="color:#e040fb">MA(25):<span id="futdMa25"> —</span></span></div>
+      <div class="ma-item"><div class="ma-sq" style="background:#26c6da"></div><span style="color:#26c6da">MA(99):<span id="futdMa99"> —</span></span></div>
     </div>
     <!-- Canvas -->
     <div class="chart-wrap futd-chart-canvas-wrap" id="futdChartWrap">
       <canvas id="futdChartCanvas"></canvas>
+      <!-- Price labels แกน Y (DOM-based เหมือน Contract .c-price-labels) -->
+      <div class="c-price-labels" id="futdPriceLbls"></div>
       <!-- current-price line/tag -->
       <div style="position:absolute;right:0;top:0;bottom:0;pointer-events:none">
         <div id="futdCurLine" style="position:absolute;right:0;left:0;height:1px;border-top:1px dashed var(--y);opacity:.6;pointer-events:none"></div>
@@ -8272,8 +8277,6 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
       <div class="ch-dot" id="futdChDot"></div>
       <div class="ch-lp-ring" id="futdChLpRing"><svg viewBox="0 0 36 36"><circle class="ch-lp-arc" id="futdChLpArc" cx="18" cy="18" r="15"/></svg></div>
       <div class="ch-hint" id="futdChHint"><span>กดค้างเพื่อดูข้อมูลแท่งเทียน</span></div>
-      <!-- OHLC mini box (hidden — replaced by tooltip below) -->
-      <div class="ch-ohlc-box" id="futdChOhlcBox" style="display:none"><span class="ch-o" id="futdChOBox">O: —</span><span class="ch-h" id="futdChHBox">H: —</span><span class="ch-l" id="futdChLBox">L: —</span><span class="ch-c" id="futdChCBox">C: —</span><span class="ch-v" id="futdChVBox">V: —</span></div>
       <!-- Candle Detail Tooltip (เหมือน Contract tab) -->
       <div class="ch-tooltip" id="futdChTooltip">
         <div class="ch-tooltip-time" id="futdChTTTime">—</div>
@@ -8301,13 +8304,13 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
       <canvas id="futdVolCanvas" style="width:100%;height:100%;display:block;"></canvas>
       <div id="futdVolHover" style="position:absolute;left:0;bottom:0;pointer-events:none;display:none;background:rgba(20,24,29,0.9);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:9px;font-family:var(--mono);color:var(--t2);white-space:nowrap;z-index:5;"></div>
     </div>
-    <!-- Indicator toggle — เพิ่ม IND master toggle button เหมือน Contract -->
-    <div class="futd-ind-bar" id="futdIndBar">
-      <span class="futd-ind-btn" id="futdIndBtnIND" onclick="futdIndToggle('IND')" style="color:var(--t2);letter-spacing:.5px;">IND</span>
-      <span class="futd-ind-btn" id="futdIndBtnRSI" onclick="futdIndToggle('RSI')">RSI</span>
-      <span class="futd-ind-btn" id="futdIndBtnMACD" onclick="futdIndToggle('MACD')">MACD</span>
-      <span class="futd-ind-btn" id="futdIndBtnBB" onclick="futdIndToggle('BB')">BB</span>
-      <span class="futd-ind-btn" id="futdIndBtnEMA" onclick="futdIndToggle('EMA')">EMA</span>
+    <!-- Indicator toggle — unified class เหมือน Contract (.ind-toggle-bar / .ind-toggle-btn) -->
+    <div class="ind-toggle-bar futd-ind-bar" id="futdIndBar">
+      <span class="ind-toggle-btn futd-ind-btn" id="futdIndBtnIND" onclick="futdIndToggle('IND')" style="color:var(--t2);letter-spacing:.5px;">IND</span>
+      <span class="ind-toggle-btn futd-ind-btn" id="futdIndBtnRSI" onclick="futdIndToggle('RSI')">RSI</span>
+      <span class="ind-toggle-btn futd-ind-btn" id="futdIndBtnMACD" onclick="futdIndToggle('MACD')">MACD</span>
+      <span class="ind-toggle-btn futd-ind-btn" id="futdIndBtnBB" onclick="futdIndToggle('BB')">BB</span>
+      <span class="ind-toggle-btn futd-ind-btn" id="futdIndBtnEMA" onclick="futdIndToggle('EMA')">EMA</span>
     </div>
     <!-- Indicator panel — ใช้ class-based เหมือน Contract (ind-panel-label/val) -->
     <div class="ind-panel-wrap" id="futdIndPanel" style="display:none;">
@@ -9527,7 +9530,7 @@ textarea.tc-inp{resize:vertical;min-height:72px;}
     <img class="lg-logo"
          src="https://i.ibb.co/NbQpSTX/TCC-Logo.png"
          alt="TCC"
-         onerror="this.src='https://cdn3.iconfinder.com/data/icons/logos-and-brands/512/44_Binance_logo_logos-512.png'">
+         onerror="if(!this._errHandled){this._errHandled=true;this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 80 80%22%3E%3Ccircle cx=%2240%22 cy=%2240%22 r=%2238%22 fill=%22%23f0a500%22/%3E%3Ctext x=%2240%22 y=%2248%22 text-anchor=%22middle%22 font-size=%2228%22 font-weight=%22bold%22 font-family=%22monospace%22 fill=%22%23000%22%3ETCC%3C/text%3E%3C/svg%3E';}">
     <div class="lg-title">TRADER CAFE CLUB</div>
     <div class="lg-sub" data-i18n="login_sub">เข้าสู่ระบบด้วยบัญชีสมาชิก TCC</div>
   </div>
@@ -12936,7 +12939,6 @@ document.addEventListener('click', e => {
 function fmtP(v) {
   if (!v || isNaN(v)) return '—';
   const n = parseFloat(v);
-  if (n > 1000) return n.toLocaleString('en',{minimumFractionDigits:1,maximumFractionDigits:1});
   if (n > 10) return n.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
   return n.toLocaleString('en',{minimumFractionDigits:4,maximumFractionDigits:4});
 }
@@ -29759,8 +29761,19 @@ function setActiveUID(uid) {
 }
 
 function _syncProfileToShare() {
-  if (USER_PROFILE.avatar && typeof SHARE_PROFILE !== 'undefined') {
-    SHARE_PROFILE.avatar = USER_PROFILE.avatar;
+  if (typeof SHARE_PROFILE === 'undefined') return;
+  // [FIX-SHARE-SYNC] sync ครบทุก field: avatar + username + refCode + refUrl
+  if (USER_PROFILE.avatar)   SHARE_PROFILE.avatar   = USER_PROFILE.avatar;
+  if (USER_PROFILE.username) SHARE_PROFILE.username  = USER_PROFILE.username;
+  // refCode = USER_PROFILE.uid (ใช้เป็น referral code)
+  if (USER_PROFILE.uid) {
+    SHARE_PROFILE.refCode = 'TCC-' + String(USER_PROFILE.uid).padStart(5, '0');
+    // refUrl: ใช้ qrCode จาก GAS ถ้ามี มิฉะนั้น build จาก uid
+    if (USER_PROFILE.qrCode && USER_PROFILE.qrCode.startsWith('http')) {
+      SHARE_PROFILE.refUrl = USER_PROFILE.qrCode;
+    } else {
+      SHARE_PROFILE.refUrl = 'https://tradercafeclub.com/ref/' + SHARE_PROFILE.refCode;
+    }
   }
 }
 
@@ -37070,16 +37083,38 @@ function aftdRenderDirectPosList(positions, liqPriceMap) {
     const entryP = parseFloat(p.entry_price) || 0;
     const size   = parseFloat(p.size)        || 0;
     const margin = parseFloat(p.margin)      || 0;
-    // [v2.58-LIQ] Priority: GAS liq_map (Binance Cross formula) → isolated fallback → Sheet liq_price
-    // Cross positions: GAS คำนวณ liq ด้วย wb_loss + sumOthers (hedge offset) ส่งใน liq_price_map
-    // Isolated + fallback ก่อน map มา: ใช้ per-position isolated formula
-    const _mmrA     = 0.005;
-    const _liqCalcA = p.side === 'long'
-      ? (entryP - margin / size + _mmrA * entryP)
-      : (entryP + margin / size - _mmrA * entryP);
-    const _liqRawA  = _liqMap[p.id] !== undefined ? parseFloat(_liqMap[p.id]) : null;
-    const liqP      = (_liqRawA !== null && _liqRawA > 0) ? _liqRawA
-                    : (entryP > 0 && size > 0 && margin > 0 ? _liqCalcA : parseFloat(p.liq_price) || 0);
+    // [FIX-AFTD-LIQ] Priority เหมือน futdRenderPositions ทุกประการ:
+    // 1) GAS liq_price_map (SSOT)
+    // 2a) Cross: _futdClientCrossLiq (mirror สูตร Binance Cross — รองรับ Hedge+One-way)
+    //     [KEY FIX] เดิมขาด branch นี้ → ตกลงไปใช้ Isolated formula ผิด → liq ผิดไกล
+    // 2b) Isolated: per-position formula (entry ± margin/size ± mmr×entry)
+    // 3) Sheet liq_price fallback สุดท้าย
+    const _mmrA    = 0.005;
+    const posMode  = String(p.mode || 'isolated').toLowerCase();
+    const _liqRawA = _liqMap[p.id] !== undefined ? parseFloat(_liqMap[p.id]) : null;
+    let liqP;
+    if (_liqRawA !== null && _liqRawA > 0) {
+      // priority 1: GAS SSOT
+      liqP = _liqRawA;
+    } else if (posMode === 'cross' && entryP > 0 && size > 0) {
+      // priority 2a: Cross client fallback — เหมือน futdRenderPositions
+      // ใช้ cross_equity (futures_balance + unrealizedPnL Cross) เพื่อ hedge offset ถูกต้อง
+      const _allPos = (FUTD.status && FUTD.status.positions) || positions;
+      const _equity = parseFloat((FUTD.status || {}).cross_equity)
+                   || parseFloat((FUTD.status || {}).futures_balance) || 0;
+      const _cLiq   = (typeof _futdClientCrossLiq === 'function')
+                    ? _futdClientCrossLiq(p.id, _allPos, _equity, _mmrA)
+                    : 0;
+      liqP = _cLiq > 0 ? _cLiq : (parseFloat(p.liq_price) || 0);
+    } else if (entryP > 0 && size > 0 && margin > 0) {
+      // priority 2b: Isolated per-position formula
+      liqP = p.side === 'long'
+        ? (entryP - margin / size + _mmrA * entryP)
+        : (entryP + margin / size - _mmrA * entryP);
+    } else {
+      // priority 3: Sheet liq_price
+      liqP = parseFloat(p.liq_price) || 0;
+    }
     // [FIX-AFTD-MARK] ใช้ fallback chain: FUTD.prices → S.coinPrices → p.mark
     // FUTD.prices ว่างถ้า Direct tab ยังไม่ถูก init → ใช้ S.coinPrices (Contract/Spot WS) แทน
     const markP  = (FUTD.prices && FUTD.prices[coin])
@@ -37096,7 +37131,7 @@ function aftdRenderDirectPosList(positions, liqPriceMap) {
     // [v2.64-MARGIN-RATIO] Binance Official: Margin Ratio = Maintenance Margin / Margin Balance × 100%
     //   Isolated: maintMargin(pos) / margin(pos)
     //   Cross:    total_maintenance_margin(account) / cross_equity
-    const posMode = String(p.mode || 'isolated').toLowerCase();
+    // posMode declared above (ในส่วน liq calculation) — ไม่ต้อง redeclare
     const _mmrAft = 0.005;
     let mrPctGlobal = 0;
     if (posMode === 'isolated') {
@@ -37194,6 +37229,7 @@ const FUTD = {
   //   hedgeMode=true+side=long  → 'LONG'
   //   hedgeMode=true+side=short → 'SHORT'
   obWs: null,              // WebSocket สำหรับ L2 orderbook
+  tradesWs: null,          // [FIX-RT] WebSocket สำหรับ trades feed (real-time candle update เหมือน Contract)
   asks: [],                // order book asks (Direct)
   bids: [],                // order book bids (Direct)
   // Chart state
@@ -37201,12 +37237,13 @@ const FUTD = {
     tf: '3m',  // [PATCH] default 3m เหมือน Contract tab
     candles: [],
     open: true,
-    wrapH: 180,
+    wrapH: 200,
     indicator: null,       // 'RSI' | 'MACD' | 'BB' | 'EMA' | null
     viewStart: null,
     visCount: 80,
     drawTimer: null,
   },
+  _chartRafPending: false, // [FIX-10] RAF throttle flag สำหรับ realtime draw (เหมือน Contract)
   // TP/SL sheet state
   tpslPosId: null,
   // [v2.51] Funding rate state (mirror of S.funding for Direct tab)
@@ -37691,6 +37728,10 @@ async function futdCloseAll() {
 }
 
 // ── Order Book WebSocket (Direct) ─────────────────────────────
+// [FIX-RT] ใช้โครงสร้างเดียวกับ Contract WS:
+//   subscribe l2Book  → อัปเดต Order Book + mid price + candle (เหมือนเดิม)
+//   subscribe trades  → อัปเดต candle ทุก trade event = real-time เหมือน Contract
+// Contract ใช้ ws เดียว subscribe ทั้ง l2Book + trades → Direct ทำเหมือนกัน
 function futdStartOrderBook() {
   futdStopOrderBook();
   const coin = FUTD.symbolCoin || 'BTC';
@@ -37699,14 +37740,17 @@ function futdStartOrderBook() {
     const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
     FUTD.obWs = ws;
     ws.onopen = () => {
+      // [FIX-RT] subscribe ทั้ง l2Book และ trades ในคราวเดียวกัน (เหมือน Contract)
       ws.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'l2Book', coin: wsCoin } }));
+      ws.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'trades', coin: wsCoin } }));
     };
     ws.onmessage = (evt) => {
       try {
         const d = JSON.parse(evt.data);
+
+        // ── l2Book handler: อัปเดต Order Book + mid price ──────────
         if (d.channel === 'l2Book' && d.data) {
           // [v2.69-OB-GUARD] ป้องกัน stale/in-flight message จากเหรียญก่อนหน้า
-          // (WS เก่าอาจส่ง message มาหลัง close() เล็กน้อย → ทำให้ OB กะพริบเป็นเหรียญผิด)
           if (d.data.coin && _normWsCoin(d.data.coin) !== FUTD.symbolCoin) return;
           const levels = d.data.levels || [];
           // levels[0] = bids, levels[1] = asks  (Hyperliquid format)
@@ -37714,13 +37758,75 @@ function futdStartOrderBook() {
           const asks = (levels[1] || []).slice(0, 12).map(x => ({ p: parseFloat(x.px), s: parseFloat(x.sz) }));
           FUTD.bids = bids;
           FUTD.asks = asks;
-          // อัปเดต mark price จาก mid
+          // อัปเดต mid price จาก OB (ใช้เป็น fallback เมื่อ trades ไม่มาถึง)
           if (bids.length && asks.length) {
             const mid = (bids[0].p + asks[asks.length - 1].p) / 2;
             FUTD.lastPrice = mid;
+            // อัปเดต last candle ด้วย OB mid (fallback path)
+            if (FUTD.chart && FUTD.chart.candles.length) {
+              const _lc = FUTD.chart.candles[FUTD.chart.candles.length - 1];
+              _lc.c = mid;
+              if (mid > _lc.h) _lc.h = mid;
+              if (mid < _lc.l) _lc.l = mid;
+              if (!FUTD._chartRafPending) {
+                FUTD._chartRafPending = true;
+                requestAnimationFrame(() => {
+                  FUTD._chartRafPending = false;
+                  if (FUTD.chart.open && typeof futdChartDraw === 'function') futdChartDraw();
+                });
+              }
+            }
           }
           futdRenderOrderBook();
         }
+
+        // ── [FIX-RT] trades handler: อัปเดตแท่งเทียน real-time เหมือน Contract ──
+        // Contract: trades → updateChart(S.markPrice) ทุก event → กราฟขยับทันทีทุก trade
+        // Direct (เดิม): ไม่มี trades → กราฟขยับจาก l2Book เท่านั้น (ช้ากว่ามาก)
+        if (d.channel === 'trades' && d.data && d.data.length) {
+          const t = d.data[0];
+          const tradeCoin = _normWsCoin(t.coin);
+          const tradePrice = parseFloat(t.px);
+          if (!tradeCoin || !tradePrice) return;
+          // ป้องกัน stale trade จากเหรียญก่อนหน้า
+          if (tradeCoin !== FUTD.symbolCoin) return;
+
+          // [FIX-RT] filter noise เหมือน Contract (deviation < 0.05% ถือว่า valid)
+          if (FUTD.lastPrice > 0) {
+            const deviation = Math.abs(tradePrice - FUTD.lastPrice) / FUTD.lastPrice;
+            if (deviation >= 0.005) return; // ข้าม spike ที่ผิดปกติ
+          }
+
+          // อัปเดต lastPrice จาก trade (แม่นยำกว่า mid price จาก OB)
+          FUTD.lastPrice = tradePrice;
+          if (!FUTD.prices) FUTD.prices = {};
+          FUTD.prices[tradeCoin] = tradePrice;
+
+          // [FIX-RT] อัปเดต last candle close/high/low ด้วย trade price — เหมือน Contract updateChart()
+          if (FUTD.chart && FUTD.chart.candles.length) {
+            const last = FUTD.chart.candles[FUTD.chart.candles.length - 1];
+            const lastC = parseFloat(last.c || last.close) || 0;
+            if (lastC > 0) {
+              last.c = tradePrice;
+              if (tradePrice > (parseFloat(last.h || last.high) || 0)) last.h = tradePrice;
+              if (tradePrice < (parseFloat(last.l || last.low)  || Infinity)) last.l = tradePrice;
+            }
+            // schedule redraw ผ่าน RAF throttle — เหมือน Contract updateChart() ทุกประการ
+            if (!FUTD._chartRafPending) {
+              FUTD._chartRafPending = true;
+              requestAnimationFrame(() => {
+                FUTD._chartRafPending = false;
+                if (FUTD.chart.open && typeof futdChartDraw === 'function') futdChartDraw();
+              });
+            }
+          }
+
+          // อัปเดต ticker mark price และ PnL cards ตาม trade price ใหม่
+          const tkMark = document.getElementById('futd-tk-mark');
+          if (tkMark) tkMark.textContent = fmtP(tradePrice);
+          if (FUTD.status) futdUpdatePnlCards();
+        }
+
       } catch (e) { /* ignore */ }
     };
     ws.onerror = () => {};
@@ -37789,7 +37895,10 @@ function futdRenderOrderBook() {
   if (mid && FUTD.asks.length && FUTD.bids.length) {
     const midPrice = (FUTD.bids[0].p + FUTD.asks[FUTD.asks.length - 1].p) / 2;
     mid.textContent = fmtP(midPrice);
-    mid.className = 'ob-mid-price up';
+    // [FIX-2] dynamic up/dn เหมือน Contract renderOrderBook() — ไม่ hardcode 'up' เสมอ
+    const _prevMid = FUTD._prevMidPrice || 0;
+    mid.className = 'ob-mid-price ' + (midPrice >= _prevMid ? 'up' : 'dn');
+    FUTD._prevMidPrice = midPrice;
   }
   if (mark && FUTD.asks.length && FUTD.bids.length) {
     const spread = FUTD.asks[FUTD.asks.length - 1].p - FUTD.bids[0].p;
@@ -38075,10 +38184,22 @@ async function futdRefreshPrice() {
     // อัปเดต PnL realtime บน position cards ที่แสดงอยู่ (ถ้ามี status)
     if (FUTD.status) futdUpdatePnlCards();
 
-    // [FIX-POS-LINES] วาดกราฟใหม่หลังได้ราคา — เพื่อให้ Position Lines (Entry/TP/SL) + Mark Price
-    // แสดงทันทีโดยไม่ต้องรอให้ user กดเปลี่ยน TF
-    // (futdChartDraw ตรวจ candles.length ก่อนวาด ถ้าแท่งเทียนยังไม่โหลดจะ return เอง)
-    if (FUTD.chart.candles.length) futdChartDraw();
+    // [FIX-11] วาดกราฟหลังได้ราคาใหม่ — ผ่าน RAF throttle ป้องกัน draw ซ้ำทุก 1s poll
+    if (FUTD.chart.candles.length) {
+      const _lc2 = FUTD.chart.candles[FUTD.chart.candles.length - 1];
+      if (price > 0) {
+        _lc2.c = price;
+        if (price > _lc2.h) _lc2.h = price;
+        if (price < _lc2.l) _lc2.l = price;
+      }
+      if (!FUTD._chartRafPending) {
+        FUTD._chartRafPending = true;
+        requestAnimationFrame(() => {
+          FUTD._chartRafPending = false;
+          if (FUTD.chart.open && typeof futdChartDraw === 'function') futdChartDraw();
+        });
+      }
+    }
 
     // [v2.57] Refresh 24h stats ทุก 4 รอบ (~60s) — ไม่ดึงทุก poll เพราะ metaAndAssetCtxs หนัก
     FUTD._priceTickCount = (FUTD._priceTickCount || 0) + 1;
@@ -38123,13 +38244,19 @@ async function futdRefreshAccountStatus() {
     // FUTD.status.futures_balance/cross_equity เป็น fallback ตอน GAS timeout (ดู catch ด้านล่าง)
     FUTD._statusSyncedAt = Date.now();
 
-    // [v2.59-LIQ] debug log: แสดงจำนวน liq entries ที่ GAS ส่งมา
+    // [v2.59-LIQ] debug log: แสดงเฉพาะเมื่อ liq_price_map ว่างและมี cross position (ลด noise)
     const _liqEntries = Object.keys(status.liq_price_map || {}).length;
     const _crossCount = (status.positions || []).filter(p => String(p.mode||'').toLowerCase() === 'cross').length;
-    if (_crossCount > 0) {
-      console.warn('[futdRefreshAccountStatus] liq_price_map entries:', _liqEntries,
-                   '| cross positions:', _crossCount,
-                   _liqEntries > 0 ? '✅ GAS Cross formula OK' : '⚠️ liq_price_map empty — client fallback active');
+    if (_crossCount > 0 && _liqEntries === 0) {
+      // warn ครั้งแรกเท่านั้น (ทุก 10 poll) ไม่ spam ทุก poll
+      FUTD._liqWarnCount = (FUTD._liqWarnCount || 0) + 1;
+      if (FUTD._liqWarnCount === 1 || FUTD._liqWarnCount % 10 === 0) {
+        console.warn('[futdRefreshAccountStatus] liq_price_map entries:', _liqEntries,
+                     '| cross positions:', _crossCount,
+                     '⚠️ liq_price_map empty — client fallback active');
+      }
+    } else if (_crossCount > 0 && _liqEntries > 0) {
+      FUTD._liqWarnCount = 0; // reset เมื่อ GAS ส่งมาแล้ว
     }
 
     // [v2.50] อัปเดต Balance bar ใหม่
@@ -39423,86 +39550,227 @@ function futdChartInit() {
     document.addEventListener('touchend', onEnd);
   }
 
-  // [FIX-PAN] Pan / Zoom on chart canvas — guard ด้วย _futdCanvasInited เพื่อกัน event stack ซ้ำ
-  // เมื่อ user switch tab กลับมา futdChartInit ถูกเรียกใหม่แต่ canvas เดิมยังอยู่ → ต้อง guard
-  const canvas = document.getElementById('futdChartCanvas');
-  if (canvas && !canvas._futdCanvasInited) {
-    canvas._futdCanvasInited = true;
-    let panning = false, panStartX = 0, panVisStart = null;
-    let pinchDist = 0;
+  // [FIX-BUG1,2,3,4] Pan / Zoom — ผูกกับ wrap (ไม่ใช่ canvas) เพื่อจับ price axis area ด้วย
+  // Bug1: เดิมผูกกับ canvas → touch บน price axis ไม่ถูกดักจับ
+  // Bug2: materialise viewStart ก่อน pan ทุกครั้ง ป้องกัน null → snap
+  // Bug3: clamp แบบ [-(vis/2), total-(vis/2)] อนุญาต negative viewStart (pan ซ้ายของแท่งแรก)
+  // Bug4: zoom รอบตำแหน่ง cursor (frac) แทนที่จะ zoom รอบกลางจอ
+  const _futdWrap = document.getElementById('futdChartWrap');
+  if (_futdWrap && !_futdWrap._futdPanZoomInited) {
+    _futdWrap._futdPanZoomInited = true;
+    const PAD_L_PZ = 2, PAD_R_PZ = 64;
 
-    // Mouse drag pan — mouseup ผูกกับ document เพื่อจับกรณี mouse ออกนอก canvas ระหว่าง drag
-    canvas.addEventListener('mousedown', e => {
-      e.preventDefault();
-      panning = true; panStartX = e.clientX;
-      panVisStart = FUTD.chart.viewStart !== null
-        ? FUTD.chart.viewStart
-        : Math.max(0, FUTD.chart.candles.length - FUTD.chart.visCount);
-    });
-    document.addEventListener('mousemove', e => {
-      if (!panning) return;
-      const dx = e.clientX - panStartX;
-      const cW = (canvas.clientWidth || 375) / FUTD.chart.visCount;
-      const delta = Math.round(dx / cW);
+    // Helper: materialise viewStart (null → total - vis)
+    function _materialiseVS() {
+      if (FUTD.chart.viewStart === null) {
+        FUTD.chart.viewStart = FUTD.chart.candles.length - FUTD.chart.visCount;
+      }
+    }
+    // Helper: clamp viewStart with half-screen negative allowance
+    function _clampVS() {
       const total = FUTD.chart.candles.length;
       const vis   = FUTD.chart.visCount;
-      FUTD.chart.viewStart = Math.max(0, Math.min(total - vis, panVisStart - delta));
-      futdChartDraw();
-    });
-    // [FIX-PAN] ย้าย mouseup ไป document → จับได้แม้ user ลาก mouse ออกนอก canvas แล้วปล่อย
-    document.addEventListener('mouseup', () => { panning = false; });
+      const minVS = -(vis / 2);
+      const maxVS = total - vis / 2;
+      FUTD.chart.viewStart = Math.max(minVS, Math.min(maxVS, FUTD.chart.viewStart));
+    }
 
-    // Touch drag pan
-    canvas.addEventListener('touchstart', e => {
-      if (e.touches.length === 1) {
-        panning = true; panStartX = e.touches[0].clientX;
-        panVisStart = FUTD.chart.viewStart !== null
-          ? FUTD.chart.viewStart
-          : Math.max(0, FUTD.chart.candles.length - FUTD.chart.visCount);
-      } else if (e.touches.length === 2) {
-        panning = false;
-        pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    let _panning = false, _panStartX = 0, _panVisStart = 0;
+    let _pinchDist = 0;
+    // vertical pan on price axis (right edge)
+    let _yDragging = false, _yDragStartY = 0, _yDragStartOff = 0;
+    // double-tap reset
+    let _lastTap = 0;
+
+    // ── Mouse ──
+    _futdWrap.addEventListener('mousedown', e => {
+      const rect = _futdWrap.getBoundingClientRect();
+      const xRel = e.clientX - rect.left;
+      const wW   = _futdWrap.clientWidth || 375;
+      if (xRel >= wW - PAD_R_PZ) {
+        // Price axis drag → vertical pan
+        e.preventDefault();
+        _yDragging = true; _yDragStartY = e.clientY; _yDragStartOff = FUTD.chart.yOffset || 0;
+      } else {
+        // Chart area → horizontal pan
+        e.preventDefault();
+        _panning = true; _panStartX = e.clientX;
+        _materialiseVS();
+        _panVisStart = FUTD.chart.viewStart;
       }
-    }, { passive: true });
-    canvas.addEventListener('touchmove', e => {
-      if (e.touches.length === 1 && panning) {
-        const dx = e.touches[0].clientX - panStartX;
-        const cW = (canvas.clientWidth || 375) / FUTD.chart.visCount;
-        const delta = Math.round(dx / cW);
+    });
+    document.addEventListener('mousemove', e => {
+      if (_panning) {
+        const wW   = _futdWrap.clientWidth || 375;
+        const slotW = (wW - PAD_L_PZ - PAD_R_PZ) / FUTD.chart.visCount;
+        const delta = (e.clientX - _panStartX) / slotW;
+        FUTD.chart.viewStart = _panVisStart - delta;
+        _clampVS();
+        futdChartDraw();
+      }
+      if (_yDragging) {
+        const dy = e.clientY - _yDragStartY;
+        const H  = FUTD.chart.wrapH || 200;
+        FUTD.chart.yOffset = _yDragStartOff + dy / H * 2;
+        futdChartDraw();
+      }
+    });
+    document.addEventListener('mouseup', () => {
+      if (_panning) {
+        // snap กลับ null เฉพาะเมื่อ pan ชิดขอบขวาถึง live edge จริงๆ (เหมือน Contract)
         const total = FUTD.chart.candles.length;
         const vis   = FUTD.chart.visCount;
-        FUTD.chart.viewStart = Math.max(0, Math.min(total - vis, panVisStart - delta));
-        futdChartDraw();
-      } else if (e.touches.length === 2) {
-        // Pinch zoom
-        const newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        if (pinchDist > 0) {
-          const factor = pinchDist / newDist;
-          const newVis = Math.round(Math.max(10, Math.min(500, FUTD.chart.visCount * factor)));
-          if (newVis !== FUTD.chart.visCount) {
-            const center = (FUTD.chart.viewStart || 0) + FUTD.chart.visCount / 2;
-            FUTD.chart.visCount  = newVis;
-            FUTD.chart.viewStart = Math.max(0, Math.min(FUTD.chart.candles.length - newVis, Math.round(center - newVis / 2)));
-            futdChartDraw();
-          }
+        if (FUTD.chart.viewStart !== null && FUTD.chart.viewStart >= total - vis) {
+          FUTD.chart.viewStart = null;
         }
-        pinchDist = newDist;
       }
-    }, { passive: true });
-    canvas.addEventListener('touchend', () => { panning = false; pinchDist = 0; });
+      _panning = false; _yDragging = false;
+    });
 
-    // Scroll wheel zoom
-    canvas.addEventListener('wheel', e => {
+    // ── Double-click to reset view (desktop) — เหมือน Contract ──
+    _futdWrap.addEventListener('dblclick', () => {
+      futdChartResetView();
+    });
+
+    // [FIX-YTOUCH-CURSOR] Cursor hint บน price axis (เหมือน Contract tab)
+    // ns-resize เมื่อ hover บนขอบขวา 64px → บอก user ว่าลากบน/ล่างได้
+    _futdWrap.addEventListener('mousemove', e => {
+      const rect = _futdWrap.getBoundingClientRect();
+      const xRel = e.clientX - rect.left;
+      const wW   = _futdWrap.clientWidth || 375;
+      if (xRel >= wW - PAD_R_PZ) {
+        _futdWrap.style.cursor = 'ns-resize';
+      } else if (!_panning && !_yDragging) {
+        _futdWrap.style.cursor = '';
+      }
+    });
+
+    // Scroll wheel zoom — cursor-based (Bug4 fix)
+    _futdWrap.addEventListener('wheel', e => {
       e.preventDefault();
+      const rect  = _futdWrap.getBoundingClientRect();
+      const mx    = e.clientX - rect.left;
+      const wW    = _futdWrap.clientWidth || 375;
+      const CW    = wW - PAD_L_PZ - PAD_R_PZ;
+      // frac: ตำแหน่ง cursor ใน chart area (0=ซ้าย, 1=ขวา)
+      const frac  = Math.max(0, Math.min(1, (mx - PAD_L_PZ) / CW));
       const factor = e.deltaY > 0 ? 1.15 : 0.87;
-      const newVis = Math.round(Math.max(10, Math.min(500, FUTD.chart.visCount * factor)));
-      if (newVis !== FUTD.chart.visCount) {
-        const center = (FUTD.chart.viewStart || 0) + FUTD.chart.visCount / 2;
+      const oldVis = FUTD.chart.visCount;
+      const newVis = Math.round(Math.max(10, Math.min(500, oldVis * factor)));
+      if (newVis !== oldVis) {
+        _materialiseVS();
+        // centerCandle = candle ที่ cursor ชี้อยู่ → คงตำแหน่งไว้หลัง zoom
+        const centerCandle = FUTD.chart.viewStart + frac * oldVis;
         FUTD.chart.visCount  = newVis;
-        FUTD.chart.viewStart = Math.max(0, Math.min(FUTD.chart.candles.length - newVis, Math.round(center - newVis / 2)));
+        FUTD.chart.viewStart = centerCandle - frac * newVis;
+        _clampVS();
         futdChartDraw();
       }
     }, { passive: false });
+
+    // ── Touch ──
+    // [FIX-YTOUCH] Helper: ตรวจว่า touch อยู่ใน price axis zone (ขอบขวา PAD_R_PZ px)
+    // เหมือน _isInPriceAxis() ของ Contract tab — ป้องกัน touch บน price axis กลายเป็น horizontal pan
+    function _futdIsInPriceAxis(t) {
+      const rect = _futdWrap.getBoundingClientRect();
+      return (t.clientX - rect.left) > (rect.width - PAD_R_PZ);
+    }
+    // [FIX-YTOUCH] State สำหรับ vertical drag บน price axis (เหมือน isYTouching ของ Contract)
+    let _isYTouching = false, _yTouchStartY = 0, _yTouchStartOff = 0;
+
+    _futdWrap.addEventListener('touchstart', e => {
+      const now = Date.now();
+      if (e.touches.length === 1) {
+        // [FIX-YTOUCH] ตรวจ price axis zone ก่อน — ถ้าอยู่ใน zone → vertical drag, ไม่ใช่ horizontal pan
+        if (_futdIsInPriceAxis(e.touches[0])) {
+          e.preventDefault();
+          _isYTouching  = true;
+          _yTouchStartY   = e.touches[0].clientY;
+          _yTouchStartOff = FUTD.chart.yOffset || 0;
+          return; // ไม่ตั้ง _panning
+        }
+        // double-tap → reset view (เฉพาะ chart area)
+        if (now - _lastTap < 300) {
+          e.preventDefault();
+          futdChartResetView();
+          _lastTap = 0;
+          return;
+        }
+        _lastTap = now;
+        _panning = true;
+        _panStartX = e.touches[0].clientX;
+        _materialiseVS();
+        _panVisStart = FUTD.chart.viewStart;
+      } else if (e.touches.length === 2) {
+        _panning = false;
+        _isYTouching = false;
+        _pinchDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+      }
+    }, { passive: false });
+
+    _futdWrap.addEventListener('touchmove', e => {
+      // [FIX-YTOUCH] Single finger บน price axis → vertical pan (ปรับ yOffset)
+      if (e.touches.length === 1 && _isYTouching) {
+        e.preventDefault();
+        const dy = e.touches[0].clientY - _yTouchStartY;
+        const H  = FUTD.chart.wrapH || 200;
+        FUTD.chart.yOffset = Math.max(-0.6, Math.min(0.6, _yTouchStartOff + dy / H * 2));
+        futdChartDraw();
+        return;
+      }
+      if (e.touches.length === 1 && _panning) {
+        e.preventDefault();
+        const wW    = _futdWrap.clientWidth || 375;
+        const slotW = (wW - PAD_L_PZ - PAD_R_PZ) / FUTD.chart.visCount;
+        const delta = (e.touches[0].clientX - _panStartX) / slotW;
+        FUTD.chart.viewStart = _panVisStart - delta;
+        _clampVS();
+        futdChartDraw();
+      } else if (e.touches.length === 2) {
+        e.preventDefault();
+        const newDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        if (_pinchDist > 0) {
+          // pinch center → cursor-based zoom (Bug4)
+          const cx    = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const rect  = _futdWrap.getBoundingClientRect();
+          const wW    = _futdWrap.clientWidth || 375;
+          const CW    = wW - PAD_L_PZ - PAD_R_PZ;
+          const frac  = Math.max(0, Math.min(1, (cx - rect.left - PAD_L_PZ) / CW));
+          const factor  = _pinchDist / newDist;
+          const oldVis  = FUTD.chart.visCount;
+          const newVis  = Math.round(Math.max(10, Math.min(500, oldVis * factor)));
+          if (newVis !== oldVis) {
+            _materialiseVS();
+            const centerCandle = FUTD.chart.viewStart + frac * oldVis;
+            FUTD.chart.visCount  = newVis;
+            FUTD.chart.viewStart = centerCandle - frac * newVis;
+            _clampVS();
+            futdChartDraw();
+          }
+        }
+        _pinchDist = newDist;
+      }
+    }, { passive: false });
+
+    _futdWrap.addEventListener('touchend', () => {
+      // [FIX-YTOUCH] reset vertical pan state
+      _isYTouching = false;
+      if (_panning) {
+        // snap กลับ null เฉพาะเมื่อ pan ชิดขอบขวาถึง live edge จริงๆ (เหมือน Contract)
+        const total = FUTD.chart.candles.length;
+        const vis   = FUTD.chart.visCount;
+        if (FUTD.chart.viewStart !== null && FUTD.chart.viewStart >= total - vis) {
+          FUTD.chart.viewStart = null;
+        }
+      }
+      _panning = false; _pinchDist = 0;
+    });
   }
 
   // Load candles
@@ -39526,10 +39794,12 @@ function futdChartInit() {
   FUTD_CHART.drawTimer = setInterval(() => {
     if (FUTD.chart.candles.length && FUTD.chart.open) {
       // [FIX-CANDLE-FREEZE] อัปเดต last candle close ด้วย mark price ล่าสุด (real-time wicks)
-      // ใช้ fallback chain: FUTD.prices → S.coinPrices → ข้ามไม่อัปเดต
-      // เดิมใช้แค่ FUTD.prices[FUTD.symbolCoin] ซึ่งว่างถ้า WebSocket ยังไม่ connect → candle ค้าง
+      // fallback chain: FUTD.prices (Direct WS) → S.coinPrices (Contract/Spot WS)
+      //                 → FUTD.lastPrice (OB WS mid) → ข้ามไม่อัปเดต
+      // FUTD.lastPrice มาจาก Order Book WebSocket ซึ่ง start พร้อมกับ Direct tab เสมอ
       const mp = (FUTD.prices && FUTD.prices[FUTD.symbolCoin])
               || (typeof S !== 'undefined' && S.coinPrices && parseFloat(S.coinPrices[FUTD.symbolCoin]))
+              || (FUTD.lastPrice > 0 ? FUTD.lastPrice : 0)
               || 0;
       if (mp > 0 && FUTD.chart.candles.length) {
         const last = FUTD.chart.candles[FUTD.chart.candles.length - 1];
@@ -39543,11 +39813,18 @@ function futdChartInit() {
           if (mp < curL) last.l = mp;
         }
       }
-      futdChartDraw();
-      // อัปเดต LIVE badge (แสดงเมื่อ user pan ออกจาก live view)
-      _futdUpdateLiveTag();
+      // [FIX-3] RAF throttle เหมือน Contract — ป้องกัน draw ซ้อนกัน
+      if (!FUTD._chartRafPending) {
+        FUTD._chartRafPending = true;
+        requestAnimationFrame(() => {
+          FUTD._chartRafPending = false;
+          if (FUTD.chart.open && typeof futdChartDraw === 'function') futdChartDraw();
+          // อัปเดต LIVE badge (แสดงเมื่อ user pan ออกจาก live view)
+          if (typeof _futdUpdateLiveTag === 'function') _futdUpdateLiveTag();
+        });
+      }
     }
-  }, 1000);
+  }, 500); // [FIX-3] 500ms แทน 1000ms — อัปเดตเร็วขึ้น 2x เหมือน Contract
 
   // Update chart header symbol
   const symEl = document.getElementById('futdChartHdrSym');
@@ -39561,16 +39838,19 @@ function futdChartInit() {
     volWrap.addEventListener('mousemove', e => {
       const candles = FUTD.chart.candles;
       if (!candles.length) return;
-      const rect  = volWrap.getBoundingClientRect();
-      const xRel  = e.clientX - rect.left;
-      const W     = rect.width;
-      const vis   = FUTD.chart.visCount;
-      const start = FUTD.chart.viewStart !== null
-        ? Math.max(0, Math.min(candles.length - vis, FUTD.chart.viewStart))
-        : Math.max(0, candles.length - vis);
-      const cW    = W / vis;
-      const idx   = Math.floor(xRel / cW);
-      const candle = candles[start + idx];
+      const rect   = volWrap.getBoundingClientRect();
+      const xRel   = e.clientX - rect.left;
+      const W      = rect.width;
+      const vis    = FUTD.chart.visCount;
+      const total  = candles.length;
+      // [FIX-BUG9] virtual slot index — เหมือน futdDrawVolume (PAD_L=2, PAD_R=64)
+      const _PAD_L = 2, _PAD_R = 64;
+      const CW     = W - _PAD_L - _PAD_R;
+      const slotW  = CW / vis;
+      const vs     = FUTD.chart.viewStart !== null ? FUTD.chart.viewStart : total - vis;
+      const virtSlot  = (xRel - _PAD_L) / slotW; // float virtual slot
+      const candleIdx = Math.max(0, Math.min(total - 1, Math.floor(vs + virtSlot)));
+      const candle    = candles[candleIdx];
       if (!candle) return;
       const vol = parseFloat(candle.v || candle.volume || 0);
       const _fv = v => v >= 1e9 ? (v/1e9).toFixed(2)+'B' : v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : v.toFixed(0);
@@ -39606,37 +39886,79 @@ function _futdUpdateLiveTag() {
 
 // ── Reset to live (latest) view ──
 function futdChartResetView() {
-  FUTD.chart.viewStart = null;
-  FUTD.chart.visCount = 80;
+  FUTD.chart.viewStart  = null;
+  FUTD.chart.visCount   = 80;
+  // [FIX-BUG9] reset vertical pan/zoom state ด้วย
+  FUTD.chart.yOffset    = 0;
+  FUTD.chart.yPadFactor = 0.15;
   _futdUpdateLiveTag();
   futdChartDraw();
 }
 
+// ── [v2.70-LOADMORE] Load older candles when user pans to left edge (เหมือน Contract fetchMoreCandlesBefore) ──
+let _futdLoadingMore = false;
+async function futdFetchMoreCandlesBefore() {
+  if (_futdLoadingMore) return;
+  if (!FUTD.chart.candles.length) return;
+  _futdLoadingMore = true;
+  try {
+    const coin     = FUTD.symbolCoin;
+    const interval = _candleInterval(FUTD.chart.tf);
+    const ms       = _candleMs(interval);
+    const endTime  = FUTD.chart.candles[0].t - 1; // just before first stored candle
+    const startTime = endTime - ms * CANDLE_BATCH;
+    const d = await hlPost({
+      type: 'candleSnapshot',
+      req: { coin: _wsCoinName(coin), interval, startTime, endTime },
+      ..._dexParam(coin)
+    });
+    const older = _parseCandles(d);
+    if (older.length) {
+      // Prepend + deduplicate by t + cap total (เหมือน fetchMoreCandlesBefore)
+      const merged = [...older, ...FUTD.chart.candles];
+      const seen   = new Set();
+      const deduped = merged.filter(c => { if (seen.has(c.t)) return false; seen.add(c.t); return true; });
+      deduped.sort((a, b) => a.t - b.t);
+      const prevLen = FUTD.chart.candles.length;
+      FUTD.chart.candles = deduped.slice(-CANDLE_MAX);
+      // Shift viewStart เพื่อให้ view ยังอยู่ที่ตำแหน่งเดิม (เหมือน Contract)
+      const added = FUTD.chart.candles.length - prevLen;
+      if (FUTD.chart.viewStart !== null && added > 0) {
+        FUTD.chart.viewStart += added;
+      }
+      futdChartDraw();
+    }
+  } catch (e) {
+    console.warn('[futdFetchMoreCandlesBefore] fail:', e.message);
+  }
+  _futdLoadingMore = false;
+}
+
 // ── Fullscreen expand (เปิด chartFullOverlay เหมือน Contract tab) ──
 function futdExpandChart() {
-  // ใช้ cfoCandles จาก FUTD.chart.candles แทน S.candles
-  if (typeof expandChart === 'function') {
-    // Temporarily patch cfoCandles source to use FUTD data
-    const _origCandles = (typeof S !== 'undefined') ? S.candles : [];
-    if (typeof S !== 'undefined') {
-      S._futdCandlesBak = S.candles;
-      S.candles = FUTD.chart.candles.slice();
-    }
-    // Sync symbol
-    const cfoSymEl = document.getElementById('cfoSym');
-    if (cfoSymEl) cfoSymEl.textContent = FUTD.symbolCoin + '/USDT';
-    // Sync active TF
-    const activeTF = document.querySelector('#futdTFBar .futd-tf-label.active');
-    if (typeof cfoTF !== 'undefined') window.cfoTF = activeTF ? activeTF.textContent : FUTD.chart.tf;
-    expandChart('futures');
-    // Restore S.candles after expandChart sets up cfoCandles
-    setTimeout(() => {
-      if (typeof S !== 'undefined' && S._futdCandlesBak !== undefined) {
-        S.candles = S._futdCandlesBak;
-        delete S._futdCandlesBak;
-      }
-    }, 100);
-  }
+  // [FIX-EXPAND] ไม่ใช้ setTimeout + S.candles swap เพื่อป้องกัน race condition
+  // แทนด้วย: inject FUTD.chart.candles เข้า cfoCandles โดยตรง หรือส่ง via S.candles
+  if (typeof expandChart !== 'function') return;
+
+  // (1) Backup S.candles — swap ชั่วคราว
+  const _bak = (typeof S !== 'undefined') ? S.candles : null;
+  const _hadBak = (typeof S !== 'undefined');
+
+  if (_hadBak) S.candles = FUTD.chart.candles.slice();
+
+  // (2) Sync symbol label ใน fullscreen overlay ก่อนเปิด
+  const cfoSymEl = document.getElementById('cfoSym');
+  if (cfoSymEl) cfoSymEl.textContent = FUTD.symbolCoin + '/USDT';
+
+  // (3) Sync active TF
+  const activeTF = document.querySelector('#futdTFBar .futd-tf-label.active');
+  window.cfoTF = activeTF ? activeTF.textContent : (FUTD.chart.tf || '3m');
+
+  // (4) เปิด fullscreen (expandChart ทำ cfoCandles = S.candles.slice() ภายในทันที synchronously)
+  expandChart('futures');
+
+  // (5) Restore S.candles ทันที (synchronous — ไม่มี async/setTimeout)
+  if (_hadBak && _bak !== null) S.candles = _bak;
 }
 
 // ── [FIX-CROSSHAIR] Init crosshair for futdChartWrap (เหมือน _initCanvasPan ของ Contract) ──
@@ -39668,7 +39990,8 @@ function futdInitCrosshair() {
   const ARC_C = 94.2;
   const LONG_PRESS_MS = 320;
   const PAN_THRESHOLD = 6;
-  const PAD_R = 44, PAD_T = 16, PAD_B = 16, PAD_L = 2;
+  // [FIX-BUG8] PAD ให้ตรงกับ futdChartDraw (PAD_B=22, PAD_R=64)
+  const PAD_R = 64, PAD_T = 12, PAD_B = 22, PAD_L = 2;
 
   let _lpTimer = null, _lpActive = false, _lpAnimFrame = null, _lpAnimStart = 0;
   let _touchMode = '', _touchCommitted = false;
@@ -39712,32 +40035,58 @@ function futdInitCrosshair() {
     const mx = clientX - rect.left;
     const my = clientY - rect.top;
     const wrapW = wrap.clientWidth || 375;
-    const wrapH = FUTD.chart.wrapH || 180;
+    const wrapH = FUTD.chart.wrapH || 200;
 
-    const vis = FUTD.chart.visCount;
+    const vis   = FUTD.chart.visCount;
     const total = candles.length;
-    const start = FUTD.chart.viewStart !== null
-      ? Math.max(0, Math.min(total - vis, FUTD.chart.viewStart))
-      : Math.max(0, total - vis);
-    const slice = candles.slice(start, start + vis);
+    // [FIX-BUG8] virtual viewport — vs อาจ negative เหมือน futdChartDraw
+    const vs = FUTD.chart.viewStart !== null ? FUTD.chart.viewStart : total - vis;
+    const realStart = Math.max(0, Math.floor(vs));
+    const realEnd   = Math.min(total, Math.ceil(vs + vis));
+    const slice     = candles.slice(realStart, realEnd);
     if (!slice.length) return;
 
-    const CW = wrapW - PAD_R - PAD_L;
-    const slotW = CW / slice.length;
-    const slotIdx = Math.max(0, Math.min(slice.length - 1, Math.floor((mx - PAD_L) / slotW)));
-    const c = slice[slotIdx];
+    const CW    = wrapW - PAD_R - PAD_L;
+    const CH    = wrapH - PAD_T - PAD_B;
+    const slotW = CW / vis; // [FIX-BUG8] ใช้ vis ไม่ใช่ slice.length
+
+    // virtual slot จาก cursor position
+    const virtSlot    = (mx - PAD_L) / slotW; // float slot ใน virtual space
+    const virtSlotInt = Math.floor(virtSlot);
+    // map กลับไป candle index
+    const candleIdx = Math.max(realStart, Math.min(realEnd - 1, Math.round(vs + virtSlot)));
+    const localIdx  = candleIdx - realStart;
+    const c = slice[localIdx];
     if (!c) return;
 
-    const cx = PAD_L + (slotIdx + 0.5) * slotW;
+    // cx ใช้ virtual slot เหมือน futdChartDraw: (ai - vs + 0.5) * slotW
+    const cx = PAD_L + (candleIdx - vs + 0.5) * slotW;
 
-    // Price range (same as futdChartDraw)
-    const highs = slice.map(cd => parseFloat(cd.h || cd.high));
-    const lows  = slice.map(cd => parseFloat(cd.l || cd.low));
-    const maxP  = Math.max(...highs);
-    const minP  = Math.min(...lows);
-    const range = maxP - minP || 1;
-    const CH = wrapH - PAD_T - PAD_B;
-    const price = maxP - ((my - PAD_T) / CH) * range;
+    // [FIX-5] Price range — ใช้ algorithm เดียวกับ futdChartDraw (p05/p95 of closes + expand h/l + cap outlier wicks)
+    // ไม่ใช้ allHighs/allLows โดยตรง → crosshair dot จะตรงกับแท่งเทียนพอดี
+    const allCloses_ch = slice.map(cd => parseFloat(cd.c || cd.close)).filter(v => isFinite(v));
+    const sorted_c_ch  = allCloses_ch.slice().sort((a, b) => a - b);
+    const p05 = sorted_c_ch[Math.max(0, Math.floor(sorted_c_ch.length * 0.05))];
+    const p95 = sorted_c_ch[Math.min(sorted_c_ch.length - 1, Math.floor(sorted_c_ch.length * 0.95))];
+    const spread_ch = (p95 - p05) || p05 * 0.02 || 1;
+    const yPad     = FUTD.chart.yPadFactor !== undefined ? FUTD.chart.yPadFactor : 0.15;
+    const yOffset  = FUTD.chart.yOffset    !== undefined ? FUTD.chart.yOffset    : 0;
+    const pad_ch   = spread_ch * yPad;
+    let minP_ch = p05 - pad_ch;
+    let maxP_ch = p95 + pad_ch;
+    // expand to actual h/l but cap extreme outlier wicks (>50% of body range) — เหมือน futdChartDraw
+    slice.forEach(cd => {
+      const capH = Math.min(parseFloat(cd.h || cd.high),  maxP_ch + spread_ch * 0.5);
+      const capL = Math.max(parseFloat(cd.l || cd.low),   minP_ch - spread_ch * 0.5);
+      if (capH > maxP_ch) maxP_ch = capH;
+      if (capL < minP_ch) minP_ch = capL;
+    });
+    const range_ch  = maxP_ch - minP_ch || 1;
+    const _priceShift_ch = yOffset * range_ch;
+    const _minPv = minP_ch + _priceShift_ch;
+    const _maxPv = maxP_ch + _priceShift_ch;
+    const price  = _maxPv - ((my - PAD_T) / CH) * range_ch;
+    const scY    = p => PAD_T + (1 - (p - _minPv) / range_ch) * CH;
 
     // Position crosshair lines
     if (chVLine) { chVLine.style.display = ''; chVLine.style.left = cx + 'px'; }
@@ -39757,7 +40106,7 @@ function futdInitCrosshair() {
     // Dot at close price Y
     if (chDot) {
       const closePx = parseFloat(c.c || c.close);
-      const dotY = PAD_T + ((maxP - closePx) / range) * CH;
+      const dotY = scY(closePx);
       chDot.style.display = 'block';
       chDot.style.left = cx + 'px';
       chDot.style.top  = dotY + 'px';
@@ -39834,13 +40183,18 @@ function futdInitCrosshair() {
   // ── Touch: long-press → crosshair (เหมือน Contract tab) ──
   wrap.addEventListener('touchstart', e => {
     if (e.touches.length !== 1) { _cancelLp(); return; }
+    // [FIX-YTOUCH-CH] skip long-press / crosshair เมื่อ touch อยู่บน price axis zone (ขอบขวา PAD_R)
+    // ป้องกัน long-press timer เริ่ม countdown แล้วเข้า crosshair mode แทนที่จะ vertical-pan
+    const _chRect = wrap.getBoundingClientRect();
+    if ((e.touches[0].clientX - _chRect.left) > (_chRect.width - PAD_R)) {
+      _cancelLp(); _stopLpAnim(); return;
+    }
     _touchStartX = e.touches[0].clientX;
     _touchStartY = e.touches[0].clientY;
     _touchCommitted = false;
     _touchMode = '';
     _lpActive = false;
-    const rect = wrap.getBoundingClientRect();
-    _startLpAnim(e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top);
+    _startLpAnim(e.touches[0].clientX - _chRect.left, e.touches[0].clientY - _chRect.top);
     _lpTimer = setTimeout(() => {
       if (!_touchCommitted) {
         _lpActive = true; _touchMode = 'crosshair'; _touchCommitted = true;
@@ -39910,9 +40264,13 @@ function futdToggleChart() {
 }
 
 function futdSetTF(el, tf) {
-  FUTD.chart.tf = tf;
-  FUTD.chart.candles = [];
-  FUTD.chart.viewStart = null;
+  FUTD.chart.tf         = tf;
+  FUTD.chart.candles    = [];
+  FUTD.chart.viewStart  = null;
+  FUTD.chart.visCount   = 80;
+  // [FIX-BUG9] reset vertical pan/zoom state เมื่อเปลี่ยน TF
+  FUTD.chart.yOffset    = 0;
+  FUTD.chart.yPadFactor = 0.15;
   document.querySelectorAll('.futd-tf-label').forEach(e => e.classList.remove('active'));
   if (el) el.classList.add('active');
   const symEl = document.getElementById('futdChartHdrSym');
@@ -39930,7 +40288,7 @@ function futdIndToggle(ind) {
     FUTD.chart.indicator = FUTD.chart.indicator === ind ? null : ind;
   }
   const anyActive = !!FUTD.chart.indicator;
-  // อัปเดตปุ่มทั้งหมด (ใช้ id ใหม่ futdIndBtnXxx)
+  // อัปเดตปุ่มทั้งหมด — ใช้ id futdIndBtnXxx (class เป็นทั้ง .ind-toggle-btn + .futd-ind-btn)
   ['RSI','MACD','BB','EMA'].forEach(k => {
     const btn = document.getElementById('futdIndBtn' + k);
     if (btn) btn.classList.toggle('active', FUTD.chart.indicator === k);
@@ -39938,6 +40296,10 @@ function futdIndToggle(ind) {
   // IND master button — active เมื่อมี indicator ใดเปิดอยู่
   const btnIND = document.getElementById('futdIndBtnIND');
   if (btnIND) btnIND.classList.toggle('active', anyActive);
+  // อัปเดต label ใน panel เหมือน Contract (RSI(14) / MACD(12,26,9) / BB(20) / EMA(9))
+  const labelMap = { RSI:'RSI(14)', MACD:'MACD(12,26,9)', BB:'BB(20)', EMA:'EMA(9)' };
+  const lblEl = document.getElementById('futdIndLabel');
+  if (lblEl && FUTD.chart.indicator) lblEl.textContent = labelMap[FUTD.chart.indicator] || FUTD.chart.indicator;
   const panel = document.getElementById('futdIndPanel');
   if (panel) panel.style.display = FUTD.chart.indicator ? '' : 'none';
   futdChartDraw();
@@ -39955,9 +40317,11 @@ async function futdChartLoad() {
     const coin = _loadCoin;
     // [v2.69-METAL-CHART] Metal coins (GOLD, SILVER …) ต้องใช้ _wsCoinName → 'xyz:GOLD'
     // และส่ง dex:'xyz' ระดับ top-level ไม่เช่นนั้น Hyperliquid ตอบ 500
+    const _interval = _candleInterval(FUTD.chart.tf);
+    const _ms       = _candleMs(_interval);
     const d = await hlPost({
       type: 'candleSnapshot',
-      req: { coin: _wsCoinName(coin), interval: FUTD.chart.tf, startTime: now - ms * 120, endTime: now },
+      req: { coin: _wsCoinName(coin), interval: _interval, startTime: now - _ms * CANDLE_BATCH, endTime: now },
       ..._dexParam(coin)
     });
     // [v2.69-CHART-STALE] ถ้า coin เปลี่ยนระหว่าง fetch → ทิ้ง response ทันที ไม่ set candles ไม่วาด
@@ -39965,7 +40329,36 @@ async function futdChartLoad() {
     if (_loadCoin === FUTD.symbolCoin) {
       // [PATCH-v2.69-FIX] ผ่าน _parseCandles() เสมอ เพื่อให้ทุก field เป็น number
       // (raw Hyperliquid response มี string fields → .toFixed() crash ใน crosshair/tooltip → กราฟค้าง)
-      FUTD.chart.candles = Array.isArray(d) ? _parseCandles(d) : [];
+      const _fresh = Array.isArray(d) ? _parseCandles(d) : [];
+      // [FIX-POLL-BOUNCE] Preserve viewStart เมื่อ poll replace array ใหม่ทั้งหมด
+      // ปัญหา: poll ทำ candles = _fresh → array reference ใหม่ → viewStart (index เก่า) offset
+      // → กราฟเด้งกลับ live edge แล้ว snap กลับ null ทุกรอบ poll
+      // แก้: ถ้า user กำลัง pan (viewStart !== null) → หา offset จากท้าย array เดิม
+      //      แล้ว re-anchor viewStart ให้ตรงกับ array ใหม่โดยไม่กระตุก
+      if (_fresh.length && FUTD.chart.candles.length && FUTD.chart.viewStart !== null) {
+        const _prevTotal = FUTD.chart.candles.length;
+        const _newTotal  = _fresh.length;
+        // offset จากท้าย array เดิม (เก็บ float ไว้เพื่อ smooth pan position)
+        const _offsetFromEnd = _prevTotal - FUTD.chart.viewStart;
+        // re-anchor: viewStart ใหม่ = ให้ offset เดิมจากท้าย array ใหม่
+        const _newVS = _newTotal - _offsetFromEnd;
+        // clamp ก่อน
+        const _vis = FUTD.chart.visCount;
+        const _minVS = -Math.floor(_vis / 2);
+        const _maxVS = _newTotal - Math.ceil(_vis / 2);
+        // [FIX-RACE] set viewStart ก่อน candles เสมอ — ป้องกัน drawTimer ที่ยิงระหว่างนี้
+        // อ่าน candles ใหม่ (array ใหม่) แต่ viewStart ยังเป็นของเก่า → กระตุก 1 frame
+        if (_newVS >= _newTotal - _vis) {
+          // user อยู่ที่ live edge แล้ว → คืน auto mode
+          FUTD.chart.viewStart = null;
+        } else {
+          FUTD.chart.viewStart = Math.max(_minVS, Math.min(_maxVS, _newVS));
+        }
+        FUTD.chart.candles = _fresh;   // ← set หลัง viewStart เสมอ
+      } else {
+        // viewStart === null (auto/live mode) → ไม่ต้องแตะ viewStart → กราฟ follow live edge
+        FUTD.chart.candles = _fresh;
+      }
       futdChartDraw();
     }
   } catch (e) {
@@ -39996,259 +40389,527 @@ function futdChartDraw() {
   canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
   const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.scale(devicePixelRatio, devicePixelRatio);
-  ctx.clearRect(0, 0, W, H);
+  // [FIX-1] เติม background สีดำก่อน (Contract ใช้ #0b0e11 — Direct ต้องเหมือนกัน ป้องกันใส on mobile)
+  ctx.fillStyle = '#0b0e11';
+  ctx.fillRect(0, 0, W, H);
 
-  // [FIX-4] Watermark Logo — เหมือน Contract ต้นฉบับ (ใช้ _chartLogoImg/_chartLogoReady ตัวเดียวกัน)
+  // [FIX-4] Watermark Logo + radial glow + "Trader Cafe Club" text (เหมือน Contract chart)
   if (typeof _chartLogoReady !== 'undefined' && _chartLogoReady && _chartLogoImg.complete) {
     const logoSize = Math.min(W, H) * 0.48;
     const logoX = W / 2 - logoSize / 2;
     const logoY = H / 2 - logoSize / 2;
     ctx.save();
+    // Outer soft radial glow — premium gold aura (เหมือน Contract)
+    const glow = ctx.createRadialGradient(W/2, H/2, logoSize*0.1, W/2, H/2, logoSize*0.62);
+    glow.addColorStop(0,   'rgba(212,168,84, 0.07)');
+    glow.addColorStop(0.5, 'rgba(180,140,60, 0.03)');
+    glow.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(W/2, H/2, logoSize*0.62, 0, Math.PI*2);
+    ctx.fill();
     ctx.globalAlpha = 0.055;
     ctx.filter = 'blur(0.5px)';
     ctx.drawImage(_chartLogoImg, logoX, logoY, logoSize, logoSize);
     ctx.filter = 'none';
     ctx.globalAlpha = 0.07;
     ctx.drawImage(_chartLogoImg, logoX, logoY, logoSize, logoSize);
+    // [FIX-4b] "Trader Cafe Club" text ใต้ logo (เหมือน Contract)
+    ctx.globalAlpha = 0.10;
+    ctx.font = `bold ${Math.round(logoSize * 0.135)}px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#d4a854';
+    ctx.letterSpacing = `${Math.round(logoSize * 0.025)}px`;
+    ctx.fillText('Trader Cafe Club', W/2, logoY + logoSize + logoSize*0.22);
+    ctx.letterSpacing = '0px';
     ctx.restore();
   }
 
-  // Visible slice — ใช้ viewStart สำหรับ pan; null = show latest
-  const vis   = Math.min(FUTD.chart.visCount, candles.length);
-  const start = FUTD.chart.viewStart !== null
-    ? Math.max(0, Math.min(candles.length - vis, FUTD.chart.viewStart))
-    : Math.max(0, candles.length - vis);
-  // auto-reset viewStart ถ้า pan มาถึงขวาสุดแล้ว
-  if (FUTD.chart.viewStart !== null && start >= candles.length - vis) {
-    FUTD.chart.viewStart = null;
+  // ── Virtual viewport — เหมือน Contract chartViewSlice ──
+  const total = candles.length;
+  const vis   = FUTD.chart.visCount;
+
+  let vs;
+  if (FUTD.chart.viewStart === null) {
+    // Auto (live) mode: live candle ชิดขอบขวา (เหมือน Contract chartViewSlice auto mode)
+    vs = total - vis;
+  } else {
+    // Manual mode: clamp ให้ first candle ถึง center ซ้าย, live candle ถึง center ขวา
+    // (เหมือน Contract chartViewSlice manual mode: minVS=-(vis/2), maxVS=total-(vis/2))
+    const minVS = -Math.floor(vis / 2);
+    const maxVS = total - Math.ceil(vis / 2);
+    FUTD.chart.viewStart = Math.max(minVS, Math.min(maxVS, FUTD.chart.viewStart));
+    vs = FUTD.chart.viewStart;
+    // [v2.70-FIX] ไม่ snap กลับ null ใน draw loop — snap ทำใน mouseup/touchend เท่านั้น
+    // (snap ใน draw ทำให้ทุกครั้งที่ pan ซ้ายมากกว่า total-vis ถูก reset กลับ live ทันที)
   }
-  // อัปเดต LIVE badge ทุกครั้งที่ draw
+  // อัปเดต LIVE badge
   if (typeof _futdUpdateLiveTag === 'function') _futdUpdateLiveTag();
-  const slice = candles.slice(start, start + vis);
+
+  // [v2.70-LOADMORE] Trigger load-more เมื่อ pan เข้าใกล้ขอบซ้าย (เหมือน Contract chartViewSlice)
+  if (vs < vis * 0.2 && typeof futdFetchMoreCandlesBefore === 'function') {
+    futdFetchMoreCandlesBefore();
+  }
+
+  // realStart/realEnd = index ใน candles array ที่ visible จริง (clamp 0..total-1)
+  const realStart = Math.max(0, Math.floor(vs));
+  const realEnd   = Math.min(total, Math.ceil(vs + vis));
+  const slice     = candles.slice(realStart, realEnd);
   if (!slice.length) return;
 
-  const highs = slice.map(c => parseFloat(c.h || c.high));
-  const lows  = slice.map(c => parseFloat(c.l || c.low));
-  const maxP  = Math.max(...highs);
-  const minP  = Math.min(...lows);
+  const PAD_L = 2, PAD_R = 64, PAD_T = 12, PAD_B = 22;
+  const CW = W - PAD_L - PAD_R;
+  const CH = H - PAD_T - PAD_B;
+  const slotW = CW / vis; // [FIX-BUG6] slot width ใช้ vis ไม่ใช่ slice.length
+
+  // ── [FIX-2] Y-scale: ใช้ algorithm เหมือน Contract chart ──
+  // p05/p95 ของ closes ก่อน แล้ว expand ด้วย actual h/l แต่ cap outlier wicks >50% of spread
+  const allCloses_ys = slice.map(c => parseFloat(c.c || c.close)).filter(v => isFinite(v));
+  if (!allCloses_ys.length) return;
+  const sorted_c = allCloses_ys.slice().sort((a, b) => a - b);
+  const p05 = sorted_c[Math.max(0, Math.floor(sorted_c.length * 0.05))];
+  const p95 = sorted_c[Math.min(sorted_c.length - 1, Math.floor(sorted_c.length * 0.95))];
+  const spread = (p95 - p05) || p05 * 0.02 || 1;
+  const yPad    = FUTD.chart.yPadFactor !== undefined ? FUTD.chart.yPadFactor : 0.15;
+  const yOffset = FUTD.chart.yOffset    !== undefined ? FUTD.chart.yOffset    : 0;
+  const pad = spread * yPad;
+  let minP = p05 - pad;
+  let maxP = p95 + pad;
+  // expand to actual h/l but cap extreme outlier wicks (>50% from body range) เหมือน Contract
+  slice.forEach(c => {
+    const capH = Math.min(parseFloat(c.h || c.high), maxP + spread * 0.5);
+    const capL = Math.max(parseFloat(c.l || c.low),  minP - spread * 0.5);
+    if (capH > maxP) maxP = capH;
+    if (capL < minP) minP = capL;
+  });
   const range = maxP - minP || 1;
-  const pad   = { t: 16, b: 16, l: 2, r: 44 };
-  const cW    = (W - pad.l - pad.r) / slice.length;
+  // yOffset shifts the visible price window up/down (เหมือน Contract)
+  const _priceShift = yOffset * range;
+  const _minPv = minP + _priceShift;
+  const _maxPv = maxP + _priceShift;
 
-  const toY = price => pad.t + ((maxP - price) / range) * (H - pad.t - pad.b);
+  // scY: แปลง price → pixel Y
+  const scY = price => PAD_T + (1 - (price - _minPv) / range) * CH;
 
-  // MA helper
+  // ── Price grid lines (nice levels) — เหมือน Contract chart ──
+  ctx.font = '9px Roboto Mono, monospace';
+  ctx.textAlign = 'right';
+  const _futdGridLevels = (typeof _niceGridLevels === 'function')
+    ? _niceGridLevels(_minPv, _maxPv, 5)
+    : (() => {
+        const rough = ((_maxPv - _minPv) / 5);
+        const mag   = Math.pow(10, Math.floor(Math.log10(rough || 1)));
+        const norm  = rough / mag;
+        const nice  = norm < 1.5 ? 1 : norm < 3.5 ? 2 : norm < 7.5 ? 5 : 10;
+        const step  = nice * mag;
+        const start = Math.ceil(_minPv / step) * step;
+        const levels = [];
+        for (let g = start; g <= _maxPv + step * 0.5; g += step) levels.push(g);
+        return levels;
+      })();
+  _futdGridLevels.forEach(gp => {
+    if (gp < _minPv || gp > _maxPv) return;
+    const gy = scY(gp);
+    if (gy < PAD_T - 2 || gy > H - PAD_B + 2) return;
+    ctx.strokeStyle = 'rgba(43,49,57,0.6)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(PAD_L, gy); ctx.lineTo(W - PAD_R, gy); ctx.stroke();
+    ctx.fillStyle = '#848e9c';
+    ctx.fillText(fmtP(gp), W - 2, gy + 3);
+  });
+  ctx.setLineDash([]);
+
+  const closes = candles.map(c => ({ c: c.c || c.close }));
+
+  // ── [FIX-BUG6] MA lines — ใช้ loop ai (absolute index) + slot index ──
   const ma = (arr, n) => arr.map((_, i) => {
     if (i < n - 1) return null;
     const s = arr.slice(i - n + 1, i + 1).map(c => parseFloat(c.c || c.close));
     return s.reduce((a, b) => a + b, 0) / n;
   });
-  const closes = candles.map(c => ({ c: c.c || c.close }));
-  const ma7  = ma(closes, 7).slice(start,  start + vis);
-  const ma25 = ma(closes, 25).slice(start, start + vis);
-  const ma99 = ma(closes, 99).slice(start, start + vis);
+  const ma7Full  = ma(closes, 7);
+  const ma25Full = ma(closes, 25);
+  const ma99Full = ma(closes, 99);
 
-  // Draw MA lines
-  [[ma7,'#f0a500','futdMa7'],[ma25,'#e040fb','futdMa25'],[ma99,'#26c6da','futdMa99']].forEach(([maArr, color, lblId]) => {
+  [[ma7Full,'#f0a500','futdMa7'],[ma25Full,'#e040fb','futdMa25'],[ma99Full,'#26c6da','futdMa99']].forEach(([maFull, color, lblId]) => {
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
     let first = true;
-    maArr.forEach((v, i) => {
-      if (v === null) return;
-      const x = pad.l + i * cW + cW / 2;
-      const y = toY(v);
+    for (let ai = realStart; ai < realEnd; ai++) {
+      const v = maFull[ai];
+      if (v === null || v === undefined) continue;
+      const slotIdx = ai - vs; // virtual slot position (may be fractional at edges)
+      const x = PAD_L + (slotIdx + 0.5) * slotW;
+      const y = scY(v);
       first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       first = false;
-    });
+    }
     ctx.stroke();
-    const last = maArr.filter(v => v !== null).pop();
-    if (last) {
+    // label: ค่าล่าสุดใน view — ใช้ fmtP (มี comma เหมือน Contract)
+    const lastMA = maFull[realEnd - 1] || maFull.slice(0, realEnd).filter(v => v !== null).pop();
+    if (lastMA) {
       const lbl = document.getElementById(lblId);
-      if (lbl) lbl.textContent = ' ' + last.toFixed(1);
+      if (lbl) lbl.textContent = ' ' + (typeof fmtP === 'function' ? fmtP(lastMA) : lastMA.toFixed(1));
     }
   });
 
-  // Draw candles
-  slice.forEach((c, i) => {
-    const o = parseFloat(c.o || c.open);
-    const h = parseFloat(c.h || c.high);
-    const l = parseFloat(c.l || c.low);
+  // ── [FIX-BUG6] Draw candles — slot-based X ──
+  const bodyW = Math.max(1.5, Math.min(slotW * 0.65, 10));
+  for (let ai = realStart; ai < realEnd; ai++) {
+    const c  = candles[ai];
+    const o  = parseFloat(c.o || c.open);
+    const h  = parseFloat(c.h || c.high);
+    const l  = parseFloat(c.l || c.low);
     const cl = parseFloat(c.c || c.close);
-    const bull = cl >= o;
+    const bull  = cl >= o;
     const color = bull ? '#0ecb81' : '#f6465d';
     ctx.fillStyle = color; ctx.strokeStyle = color;
-
-    const x  = pad.l + i * cW;
-    const xm = x + cW / 2;
+    const slotIdx = ai - vs;
+    const cx  = PAD_L + (slotIdx + 0.5) * slotW;
     // Wick
-    ctx.beginPath();
-    ctx.moveTo(xm, toY(h));
-    ctx.lineTo(xm, toY(l));
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, scY(h)); ctx.lineTo(cx, scY(l));
+    ctx.lineWidth = 1; ctx.stroke();
     // Body
-    const bodyTop = toY(Math.max(o, cl));
-    const bodyBot = toY(Math.min(o, cl));
+    const bodyTop = scY(Math.max(o, cl));
+    const bodyBot = scY(Math.min(o, cl));
     const bH = Math.max(1, bodyBot - bodyTop);
-    const bW = Math.max(1, cW * 0.7);
-    ctx.fillRect(x + (cW - bW) / 2, bodyTop, bW, bH);
-  });
+    ctx.fillRect(cx - bodyW / 2, bodyTop, bodyW, bH);
+  }
 
-  // Price axis
-  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
-  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
-    const price = maxP - f * range;
-    const y     = toY(price);
-    ctx.fillText(price.toFixed(1), W - 2, y + 3);
-  });
-
-  // Current price line
-  const lastClose = parseFloat(slice[slice.length - 1].c || slice[slice.length - 1].close);
-  const curY = toY(lastClose);
+  // ── Current price line (เหมือน Contract — fmtP + visibility ──
+  const lastC_futd = candles[candles.length - 1];
+  // ใช้ FUTD.lastPrice (realtime จาก OB WS / poll) ถ้ามี, fallback lastClose
+  const lastClose = parseFloat(lastC_futd.c || lastC_futd.close);
+  const _priceDiffFutd = FUTD.lastPrice > 0 ? Math.abs(FUTD.lastPrice - lastClose) / (lastClose || 1) : 1;
+  const curP_futd = (FUTD.lastPrice > 0 && _priceDiffFutd < 0.15) ? FUTD.lastPrice : lastClose;
+  const curY = scY(curP_futd);
+  // dashed overlay บน canvas (เหมือน Contract)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(240,185,11,0.55)';
+  ctx.lineWidth   = 0.8;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(PAD_L, curY); ctx.lineTo(W - PAD_R, curY); ctx.stroke();
+  ctx.restore();
+  ctx.setLineDash([]);
+  const _cyMin = PAD_T, _cyMax = PAD_T + CH;
+  const _cyVisible = curY >= _cyMin - 2 && curY <= _cyMax + 2;
   const curLine = document.getElementById('futdCurLine');
   const curTag  = document.getElementById('futdCurTag');
-  if (curLine) curLine.style.top = curY + 'px';
-  if (curTag)  { curTag.style.top = (curY - 8) + 'px'; curTag.textContent = lastClose.toFixed(2); }
+  if (curLine) { curLine.style.top = curY + 'px'; curLine.style.display = _cyVisible ? '' : 'none'; }
+  if (curTag)  { curTag.style.top = (curY - 9) + 'px'; curTag.textContent = fmtP(curP_futd); curTag.style.display = _cyVisible ? '' : 'none'; }
 
-  // [FIX-3] Position Lines — Entry / TP / SL วาดเป็น filled pill เหมือน Contract ต้นฉบับ
-  // (เดิม: label เป็นตัวหนังสือธรรมดาชิดซ้าย ไม่มีพื้นหลัง — ไม่ตรงกับ 📋 Contract)
+  // ── [FIX-6] High / Low price markers (Binance style เหมือน Contract chart) ──
+  {
+    let hiIdx = realStart, loIdx = realStart;
+    let hiVal = -Infinity, loVal = Infinity;
+    for (let ai = realStart; ai < realEnd; ai++) {
+      const _ch = parseFloat(candles[ai].h || candles[ai].high);
+      const _cl = parseFloat(candles[ai].l || candles[ai].low);
+      if (_ch > hiVal) { hiVal = _ch; hiIdx = ai; }
+      if (_cl < loVal) { loVal = _cl; loIdx = ai; }
+    }
+    const hiX = PAD_L + (hiIdx - vs + 0.5) * slotW;
+    const loX = PAD_L + (loIdx - vs + 0.5) * slotW;
+    const hiY = scY(hiVal);
+    const loY = scY(loVal);
+    ctx.save();
+    ctx.font = 'bold 10px Roboto Mono, monospace';
+    // High marker
+    const hiLabel = fmtP(hiVal);
+    const hiLabelW = ctx.measureText(hiLabel).width;
+    ctx.beginPath(); ctx.arc(hiX, hiY, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+    const hiOnLeft = hiX > (W - PAD_R) * 0.55;
+    const hiLX = hiOnLeft ? hiX - 6 - hiLabelW - 8 : hiX + 6;
+    const hiLY = Math.max(PAD_T + 12, hiY - 4);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 0.7; ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(hiX, hiY); ctx.lineTo(hiOnLeft ? hiX - 5 : hiX + 5, hiLY + 4); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(30,34,40,0.82)';
+    ctx.fillRect(hiLX - 2, hiLY - 11, hiLabelW + 12, 15);
+    ctx.fillStyle = '#e0e0e0'; ctx.textAlign = 'left';
+    ctx.fillText(hiLabel, hiLX + 2, hiLY);
+    // Low marker
+    const loLabel = fmtP(loVal);
+    const loLabelW = ctx.measureText(loLabel).width;
+    ctx.beginPath(); ctx.arc(loX, loY, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+    const loOnLeft = loX > (W - PAD_R) * 0.55;
+    const loLX = loOnLeft ? loX - 6 - loLabelW - 8 : loX + 6;
+    const loLY = Math.min(PAD_T + CH - 4, loY + 14);
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 0.7; ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(loX, loY); ctx.lineTo(loOnLeft ? loX - 5 : loX + 5, loLY - 4); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(30,34,40,0.82)';
+    ctx.fillRect(loLX - 2, loLY - 11, loLabelW + 12, 15);
+    ctx.fillStyle = '#e0e0e0'; ctx.textAlign = 'left';
+    ctx.fillText(loLabel, loLX + 2, loLY);
+    ctx.restore();
+  }
+
+  // ── [FIX-BUG5 position] Position Lines — ใช้ scY/_minPv/_maxPv ──
   const futdPositions = (FUTD.status && FUTD.status.positions) || [];
   futdPositions.forEach(p => {
     const coin  = (p.symbol || '').replace('USDT', '');
-    if (coin !== FUTD.symbolCoin) return; // แสดงเฉพาะเหรียญที่กำลังดูกราฟ
+    if (coin !== FUTD.symbolCoin) return;
     const entryP = parseFloat(p.entry_price) || 0;
     const tp     = parseFloat(p.tp)          || 0;
     const sl     = parseFloat(p.sl)          || 0;
     const size   = parseFloat(p.size)        || 0;
     const isLong = p.side === 'long';
     const entryCol = isLong ? '#0ecb81' : '#f6465d';
-
-    // Unrealized PNL — คำนวณแบบเดียวกับ futdRenderPositions
     const markP = (FUTD.prices && FUTD.prices[coin]) || 0;
     let upnl = 0;
     if (markP > 0 && entryP > 0 && size > 0) {
       upnl = isLong ? (markP - entryP) * size : (entryP - markP) * size;
     }
+    ctx.save();
+    ctx.font = 'bold 9px Roboto Mono, monospace';
+    ctx.textAlign = 'right';
 
-    // Helper — เส้นแนวนอน + pill ราคาทึบสีชิดขวา (เหมือน Contract ต้นฉบับ)
-    const drawPriceTag = (price, bg, dash, textColor) => {
-      if (!price || price < minP * 0.98 || price > maxP * 1.02) return null; // นอก range → ข้าม
-      const y = toY(price);
+    // ── Entry line (เหมือน Contract) ──
+    const ey_futd = scY(entryP);
+    if (entryP > 0 && ey_futd >= PAD_T - 2 && ey_futd <= H - PAD_B + 2) {
       ctx.save();
-      ctx.strokeStyle = bg;
-      ctx.lineWidth   = dash ? 0.9 : 1.2;
-      ctx.setLineDash(dash ? [4, 4] : [5, 3]);
-      ctx.globalAlpha = 0.85;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W - pad.r - 2, y); ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.setLineDash([]);
-
-      // Price tag — filled rounded rect ชิดขวา (แนว price axis)
-      ctx.font = 'bold 10px monospace';
-      const priceTxt = price.toLocaleString('en', { maximumFractionDigits: 2 });
-      const tagX = W - pad.r + 2, tagW = pad.r - 4, tagY = y - 9;
-      ctx.fillStyle = bg;
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(tagX, tagY, tagW, 18, 3); else ctx.rect(tagX, tagY, tagW, 18);
-      ctx.fill();
-      ctx.fillStyle = textColor;
-      ctx.textAlign = 'left';
-      ctx.fillText(priceTxt, tagX + 3, y + 4);
-      ctx.restore();
-      return y;
-    };
-
-    // Entry line — pill ราคาขวา + tag PNL/Leverage ฝั่งซ้าย (เหมือน Contract)
-    const ey = drawPriceTag(entryP, entryCol, false, isLong ? '#000' : '#fff');
-    if (ey !== null) {
-      ctx.save();
-      ctx.font = 'bold 9.5px monospace';
+      ctx.setLineDash([5, 3]);
+      ctx.strokeStyle = entryCol; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.moveTo(PAD_L, ey_futd); ctx.lineTo(W - PAD_R - 2, ey_futd); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.setLineDash([]);
+      // PNL tag ซ้าย
+      ctx.font = 'bold 9.5px Roboto Mono, monospace';
       const pnlSign = upnl >= 0 ? '+' : '';
-      const pnlTxt  = 'PNL ' + pnlSign + upnl.toFixed(2);
-      const pnlBg   = upnl >= 0 ? 'rgba(14,203,129,0.88)' : 'rgba(246,70,93,0.88)';
+      const pnlTxt  = 'PNL ' + pnlSign + (typeof fmtNum === 'function' ? fmtNum(upnl, 2) : upnl.toFixed(2));
       const pnlW = ctx.measureText(pnlTxt).width + 10;
-      const tagH = 16, tagY = ey - tagH / 2;
+      const pnlBg = upnl >= 0 ? 'rgba(14,203,129,0.88)' : 'rgba(246,70,93,0.88)';
+      const tagH = 16, tagY = ey_futd - tagH / 2;
       ctx.fillStyle = pnlBg;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(2, tagY, pnlW, tagH, 3); else ctx.rect(2, tagY, pnlW, tagH);
+      if (ctx.roundRect) ctx.roundRect(PAD_L, tagY, pnlW, tagH, 3); else ctx.fillRect(PAD_L, tagY, pnlW, tagH);
       ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.textAlign = 'left';
-      ctx.fillText(pnlTxt, 6, ey + 3.5);
-
-      // Leverage tag — ติดกับ PNL
-      ctx.font = 'bold 8.5px monospace';
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+      ctx.fillText(pnlTxt, PAD_L + 5, ey_futd + 3.5);
+      // Leverage tag
+      ctx.font = 'bold 8.5px Roboto Mono, monospace';
       const levTxt = (p.lev || '') + 'x';
       const levW = ctx.measureText(levTxt).width + 8;
-      const levX = 2 + pnlW + 2;
-      ctx.fillStyle = 'rgba(43,49,57,0.92)';
-      ctx.strokeStyle = entryCol;
-      ctx.lineWidth = 0.8;
+      const levX = PAD_L + pnlW + 2;
+      ctx.fillStyle = 'rgba(43,49,57,0.92)'; ctx.strokeStyle = entryCol; ctx.lineWidth = 0.8;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(levX, tagY, levW, tagH, 3); else ctx.rect(levX, tagY, levW, tagH);
+      if (ctx.roundRect) ctx.roundRect(levX, tagY, levW, tagH, 3); else ctx.fillRect(levX, tagY, levW, tagH);
       ctx.fill(); ctx.stroke();
+      ctx.fillStyle = entryCol; ctx.textAlign = 'left';
+      ctx.fillText(levTxt, levX + 4, ey_futd + 3.5);
+      // Entry price tag ขวา
+      ctx.font = 'bold 10px Roboto Mono, monospace';
       ctx.fillStyle = entryCol;
-      ctx.fillText(levTxt, levX + 4, ey + 3.5);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(W - PAD_R + 2, ey_futd - 9, PAD_R - 4, 18, 3);
+      else ctx.rect(W - PAD_R + 2, ey_futd - 9, PAD_R - 4, 18);
+      ctx.fill();
+      ctx.fillStyle = isLong ? '#000' : '#fff'; ctx.textAlign = 'left';
+      ctx.fillText(fmtP(entryP), W - PAD_R + 3, ey_futd + 4);
       ctx.restore();
     }
 
-    if (tp > 0) drawPriceTag(tp, 'rgba(14,203,129,0.88)', true, '#000');
-    if (sl > 0) drawPriceTag(sl, 'rgba(246,70,93,0.88)', true, '#fff');
+    // ── TP line + right-side tag + LEFT mini badge (เหมือน Contract) ──
+    if (tp > 0) {
+      const ty = scY(tp);
+      if (ty >= PAD_T - 2 && ty <= H - PAD_B + 2) {
+        ctx.save();
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(14,203,129,0.6)'; ctx.lineWidth = 0.9;
+        ctx.beginPath(); ctx.moveTo(PAD_L, ty); ctx.lineTo(W - PAD_R - 2, ty); ctx.stroke();
+        ctx.setLineDash([]);
+        // Right price tag
+        ctx.font = 'bold 10px Roboto Mono, monospace';
+        ctx.fillStyle = 'rgba(14,203,129,0.88)';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(W - PAD_R + 2, ty - 9, PAD_R - 4, 18, 3);
+        else ctx.rect(W - PAD_R + 2, ty - 9, PAD_R - 4, 18);
+        ctx.fill();
+        ctx.fillStyle = '#000'; ctx.textAlign = 'left';
+        ctx.fillText(fmtP(tp), W - PAD_R + 4, ty + 4);
+        // Left mini badge "TP"
+        ctx.font = 'bold 8.5px Roboto Mono, monospace';
+        const tpLblW = ctx.measureText('TP').width + 8;
+        ctx.fillStyle = 'rgba(14,203,129,0.82)';
+        ctx.fillRect(PAD_L, ty - 7, tpLblW, 14);
+        ctx.fillStyle = '#000';
+        ctx.fillText('TP', PAD_L + 4, ty + 3);
+        ctx.restore();
+      }
+    }
+
+    // ── SL line + right-side tag + LEFT mini badge (เหมือน Contract) ──
+    if (sl > 0) {
+      const sy = scY(sl);
+      if (sy >= PAD_T - 2 && sy <= H - PAD_B + 2) {
+        ctx.save();
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(246,70,93,0.6)'; ctx.lineWidth = 0.9;
+        ctx.beginPath(); ctx.moveTo(PAD_L, sy); ctx.lineTo(W - PAD_R - 2, sy); ctx.stroke();
+        ctx.setLineDash([]);
+        // Right price tag
+        ctx.font = 'bold 10px Roboto Mono, monospace';
+        ctx.fillStyle = 'rgba(246,70,93,0.88)';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(W - PAD_R + 2, sy - 9, PAD_R - 4, 18, 3);
+        else ctx.rect(W - PAD_R + 2, sy - 9, PAD_R - 4, 18);
+        ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+        ctx.fillText(fmtP(sl), W - PAD_R + 4, sy + 4);
+        // Left mini badge "SL"
+        ctx.font = 'bold 8.5px Roboto Mono, monospace';
+        const slLblW = ctx.measureText('SL').width + 8;
+        ctx.fillStyle = 'rgba(246,70,93,0.82)';
+        ctx.fillRect(PAD_L, sy - 7, slLblW, 14);
+        ctx.fillStyle = '#fff';
+        ctx.fillText('SL', PAD_L + 4, sy + 3);
+        ctx.restore();
+      }
+    }
+
+    // ── [FIX-7] Liq. Price line (เพิ่มใหม่ใน Direct — เหมือน Contract) ──
+    const liqP = parseFloat(p.liq_price || p.liq) || 0;
+    if (liqP > 0) {
+      const ly = scY(liqP);
+      if (ly >= PAD_T - 2 && ly <= H - PAD_B + 2) {
+        ctx.save();
+        ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,80,0.55)'; ctx.lineWidth = 0.8;
+        ctx.beginPath(); ctx.moveTo(PAD_L, ly); ctx.lineTo(W - PAD_R - 2, ly); ctx.stroke();
+        ctx.setLineDash([]);
+        // Right-side Liq tag
+        ctx.font = 'bold 9px Roboto Mono, monospace';
+        ctx.fillStyle = 'rgba(200,180,0,0.82)';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(W - PAD_R + 2, ly - 9, PAD_R - 4, 18, 3);
+        else ctx.rect(W - PAD_R + 2, ly - 9, PAD_R - 4, 18);
+        ctx.fill();
+        ctx.fillStyle = '#000'; ctx.textAlign = 'left';
+        ctx.fillText(fmtP(liqP), W - PAD_R + 4, ly + 3.5);
+        // Left mini label "Liq"
+        const liqLblW = ctx.measureText('Liq').width + 8;
+        ctx.fillStyle = 'rgba(200,180,0,0.75)';
+        ctx.fillRect(PAD_L, ly - 7, liqLblW, 14);
+        ctx.fillStyle = '#000';
+        ctx.fillText('Liq', PAD_L + 4, ly + 3);
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
   });
 
-  // OHLC labels
-  const last = slice[slice.length - 1];
+  // OHLC labels — ใช้ fmtP (มี comma เหมือน Contract)
+  const last_ohlc = candles[candles.length - 1];
   const setOhlc = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-  setOhlc('futdChO', 'O:' + parseFloat(last.o || last.open).toFixed(2));
-  setOhlc('futdChH', 'H:' + parseFloat(last.h || last.high).toFixed(2));
-  setOhlc('futdChL', 'L:' + parseFloat(last.l || last.low).toFixed(2));
-  setOhlc('futdChC', 'C:' + parseFloat(last.c || last.close).toFixed(2));
+  setOhlc('futdChO', 'O:' + fmtP(parseFloat(last_ohlc.o || last_ohlc.open)));
+  setOhlc('futdChH', 'H:' + fmtP(parseFloat(last_ohlc.h || last_ohlc.high)));
+  setOhlc('futdChL', 'L:' + fmtP(parseFloat(last_ohlc.l || last_ohlc.low)));
+  setOhlc('futdChC', 'C:' + fmtP(parseFloat(last_ohlc.c || last_ohlc.close)));
 
-  // Volume histogram
-  futdDrawVolume(slice);
+  // [FIX-BUG7] Volume histogram — ส่ง vs/vis ด้วย เพื่อ slot-based X
+  futdDrawVolume(slice, vs, vis);
 
-  // Indicator
-  // [FIX-2] ส่ง closes ทั้งหมด + start/vis แทนการตัด slice มาก่อน เพื่อให้ RSI/MACD/BB
-  // มี look-back period ที่ถูกต้อง (เดิมส่งแค่ closesSlice ที่ตัดมาแล้ว ทำให้ค่าต้นๆ ของ indicator
-  // เป็น null ไปกินพื้นที่ครึ่งซ้ายของกราฟ indicator)
-  if (FUTD.chart.indicator) futdDrawIndicator(closes, start, vis);
+  // Indicator — ส่ง closes ทั้งหมด + realStart/vis
+  if (FUTD.chart.indicator) futdDrawIndicator(closes, realStart, vis);
 
-  // Candle countdown (wall-clock based — ไม่ต้องส่ง last)
+  // Candle countdown
   futdUpdateCandleCountdown();
 
-  // [PATCH] Chart Time Row — อัปเดต timestamp แรก/สุดท้ายของ slice (เหมือน Contract chartTimeRow)
+  // [FIX-8] Chart Time Row — แสดง full date+time เหมือน Contract chart (ไม่ใช่แค่เวลา)
   const tRow = document.getElementById('futdChartTimeRow');
   if (tRow && slice.length > 0) {
-    const ft = t => {
-      const d = new Date(t);
-      return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const fmtT = ms => {
+      const d = new Date(ms);
+      return d.getFullYear() + '-'
+        + String(d.getMonth()+1).padStart(2,'0') + '-'
+        + String(d.getDate()).padStart(2,'0') + ' '
+        + String(d.getHours()).padStart(2,'0') + ':'
+        + String(d.getMinutes()).padStart(2,'0');
     };
-    tRow.innerHTML = `<span class="ct-lbl">${ft(slice[0].t)}</span><span class="ct-lbl">${ft(slice[slice.length-1].t)}</span>`;
+    tRow.innerHTML =
+      `<span class="ct-lbl">${fmtT(slice[0].t)}</span>` +
+      `<span class="ct-lbl">${fmtT(slice[slice.length-1].t)}</span>`;
   }
 }
 
-function futdDrawVolume(slice) {
+// [FIX-BUG7] futdDrawVolume รับ vs/vis → slot-based X align กับ candle เมื่อ pan
+// [FIX-9] futdDrawVolume — เหมือน Contract drawVolume: bg fill, MA-vol line, VOL + Max labels
+function futdDrawVolume(slice, vs, vis) {
   const canvas = document.getElementById('futdVolCanvas');
   if (!canvas) return;
   const volWrap = document.getElementById('futdVolWrap') || canvas.parentElement;
   const W = volWrap?.clientWidth || 375;
   const H = volWrap?.clientHeight || 44;
-  canvas.width  = W * devicePixelRatio;
-  canvas.height = H * devicePixelRatio;
+  if (W < 10 || H < 10) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
   canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(devicePixelRatio, devicePixelRatio);
-  ctx.clearRect(0, 0, W, H);
+  const vc = canvas.getContext('2d');
+  vc.setTransform(1, 0, 0, 1, 0, 0);
+  vc.scale(dpr, dpr);
+  vc.clearRect(0, 0, W, H);
+  // [FIX-9a] Background fill (เหมือน Contract)
+  vc.fillStyle = '#0b0e11';
+  vc.fillRect(0, 0, W, H);
+  if (!slice.length) return;
+
+  const _vis   = (vis !== undefined && vis > 0) ? vis : slice.length;
+  const _vs    = (vs  !== undefined)            ? vs  : 0;
+
+  const PAD_L = 2, PAD_R = 64;
+  const CW    = W - PAD_L - PAD_R;
+  const PAD_T = 3, PAD_B = 3;
+  const CH    = H - PAD_T - PAD_B;
+  const slotW = CW / _vis;
+  const barW  = Math.max(1, slotW * 0.65);
+
   const vols = slice.map(c => parseFloat(c.v || c.volume || 0));
-  const maxV = Math.max(...vols) || 1;
-  const cW   = slice.length > 0 ? W / slice.length : 4;
-  slice.forEach((c, i) => {
-    const bull = parseFloat(c.c || c.close) >= parseFloat(c.o || c.open);
-    ctx.fillStyle = bull ? 'rgba(14,203,129,.5)' : 'rgba(246,70,93,.5)';
-    const bH = (vols[i] / maxV) * H;
-    ctx.fillRect(i * cW, H - bH, Math.max(1, cW * 0.8), bH);
+  const maxV = Math.max(...vols, 1);
+
+  const realStart_v = Math.max(0, Math.round(_vs));
+
+  // [FIX-9b] MA-vol line (5-bar avg) เหมือน Contract
+  const maVol5 = [];
+  for (let i = 0; i < slice.length; i++) {
+    const sl = slice.slice(Math.max(0, i - 4), i + 1);
+    maVol5.push(sl.reduce((s, c) => s + parseFloat(c.v || c.volume || 0), 0) / sl.length);
+  }
+  vc.beginPath();
+  vc.strokeStyle = 'rgba(240,185,11,0.35)';
+  vc.lineWidth = 1;
+  maVol5.forEach((mv, i) => {
+    const ai = realStart_v + i;
+    const x  = PAD_L + ((ai - _vs) + 0.5) * slotW;
+    const y  = PAD_T + (1 - mv / maxV) * CH;
+    i === 0 ? vc.moveTo(x, y) : vc.lineTo(x, y);
   });
+  vc.stroke();
+
+  // Draw bars
+  slice.forEach((c, i) => {
+    const ai      = realStart_v + i;
+    const slotIdx = ai - _vs;
+    const cx      = PAD_L + (slotIdx + 0.5) * slotW;
+    const vol     = vols[i];
+    const barH    = Math.max(1, (vol / maxV) * CH);
+    const isUp    = parseFloat(c.c || c.close) >= parseFloat(c.o || c.open);
+    vc.fillStyle  = isUp ? 'rgba(14,203,129,0.55)' : 'rgba(246,70,93,0.55)';
+    vc.fillRect(cx - barW / 2, PAD_T + CH - barH, barW, barH);
+  });
+
+  // [FIX-9c] VOL label + Max vol label (เหมือน Contract)
+  vc.font = '8px Roboto Mono, monospace';
+  vc.fillStyle = 'rgba(132,142,156,0.6)';
+  vc.textAlign = 'left';
+  vc.fillText('VOL', PAD_L + 2, PAD_T + 9);
+  vc.textAlign = 'right';
+  vc.fillStyle = 'rgba(132,142,156,0.5)';
+  vc.fillText((typeof _fmtVol === 'function') ? _fmtVol(maxV) : maxV.toFixed(0), W - 2, PAD_T + 9);
 }
 
 function futdDrawIndicator(closesAll, start, vis) {
