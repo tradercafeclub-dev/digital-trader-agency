@@ -24891,6 +24891,8 @@ function _origMytRenderFilter(tab){
 function _origMytRenderContent(tab){
   const el = document.getElementById('mytContent');
   const items = MYT.getData(tab);
+  // [v4.16-FIX-FUTD-OOCOUNT] badge ของ Futures-Direct นับจาก FUTD.status — ต้องทำก่อน early-return 'No records' ด้านล่าง
+  if(tab === 'futd-open-orders') mytFutdOOCountSync();
   // update open orders count badge
   if(tab === 'open-orders'){
     const countEl = document.getElementById('mytOOCount');
@@ -25436,6 +25438,20 @@ function mytCloseContextMenu() {
   if (chevron) chevron.style.transform = 'rotate(0deg)';
 }
 
+// [v4.16-FIX-FUTD-OOCOUNT] จำนวน Open Orders ของ Futures-Direct = position ที่เปิดอยู่ + pending orders ของ Direct
+// (แหล่งเดียวกับรายการที่ branch 'futd-open-orders' วาด: FUTD.status.positions + FUTD.status.orders)
+// เดิม badge นี้ใช้ S.positions.length (position ฝั่ง Contract) และไม่มีโค้ดอัปเดตตามหลัง → แสดง 3 ทั้งที่ Direct มี 1
+function mytFutdOOCount(){
+  try {
+    const st = (typeof FUTD !== 'undefined' && FUTD && FUTD.status) ? FUTD.status : null;
+    if (!st) return 0;
+    return (Array.isArray(st.positions) ? st.positions.length : 0) + (Array.isArray(st.orders) ? st.orders.length : 0);
+  } catch (e) { return 0; }
+}
+function mytFutdOOCountSync(){
+  const el = document.getElementById('futdOOCount');
+  if (el) el.textContent = mytFutdOOCount();
+}
 function mytSetContext(ctx) {
   mytCloseContextMenu();
   MYT.context = ctx;
@@ -25445,7 +25461,7 @@ function mytSetContext(ctx) {
   // Rebuild tabs row
   const tabsRow = document.getElementById('mytTabsRow');
   tabsRow.innerHTML = cfg.tabs.map((t, i) =>
-    `<div class="myt-tab${i===0?' active':''}" data-tab="${t.id}" onclick="mytSwitchTab('${t.id}',this)">${t.label}${t.count?`<span class="myt-tab-count" id="${t.count}">${typeof S!=='undefined'?S.positions.length:0}</span>`:''}</div>`
+    `<div class="myt-tab${i===0?' active':''}" data-tab="${t.id}" onclick="mytSwitchTab('${t.id}',this)">${t.label}${t.count?`<span class="myt-tab-count" id="${t.count}">${t.count==='futdOOCount'?mytFutdOOCount():(typeof S!=='undefined'?S.positions.length:0)}</span>`:''}</div>`
   ).join('');
   mytSwitchTab(cfg.defaultTab, tabsRow.querySelector('.myt-tab'));
 }
@@ -40964,6 +40980,8 @@ async function futdRefreshAccountStatus() {
     const cntOrd = document.getElementById('futdCntOrd');
     if (cntPos) cntPos.textContent = (status.positions || []).length || 0;
     if (cntOrd) cntOrd.textContent = (status.orders    || []).length || 0;
+    // [v4.16-FIX-FUTD-OOCOUNT] sync badge Open Orders ใน My Trades → Futures-Direct (positions + orders จาก status เดียวกัน)
+    if (typeof mytFutdOOCountSync === 'function') mytFutdOOCountSync();
 
     // [v2.63-HEDGE] sync hedge_mode_active badge จาก server
     if (status.hedge_mode_active && !FUTD.hedgeMode) {
@@ -41740,6 +41758,10 @@ function _futdOptimisticSync() {
     futdUpdateBalanceBar(FUTD.status);
     const cntPos = document.getElementById('futdCntPos');
     if (cntPos) cntPos.textContent = ps.length || 0;
+    // [v4.16-FIX-FUTD-OOCOUNT] เดิมอัปเดตแค่ futdCntPos → futdCntOrd + badge ใน My Trades ค้างค่าเก่าหลังปิด position
+    const cntOrd = document.getElementById('futdCntOrd');
+    if (cntOrd) cntOrd.textContent = (FUTD.status.orders || []).length || 0;
+    if (typeof mytFutdOOCountSync === 'function') mytFutdOOCountSync();
     HIST.futdOpenOrders = ps.slice();
     if (FUTD.chart && FUTD.chart.candles && FUTD.chart.candles.length) futdChartDraw();
   } catch (e) { console.warn('[futdOptimisticSync]', e.message); }
