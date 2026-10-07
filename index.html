@@ -1,3 +1,9 @@
+<!-- [v8.3-ORDHIST] (2026-10-06) ใช้คู่กับ GAS_easy_TCC_v6_1.gs (deploy GAS ก่อน HTML) — GAS บันทึก Market close ลงชีต OpenOrders เป็นแถว cordc_ แล้ว → HTML แสดงเป็น Close Long/Short + ไม่สร้างซ้ำจาก Trades + แทนแถวชั่วคราวใน session ไม่ให้ซ้ำ
+     ยังทำงานได้กับ GAS v6 เดิม (ใช้ตัวสร้างกลับจาก Positions/Trades ของ v8.2 เป็น fallback — ครอบคลุมประวัติก่อน deploy ด้วย) · ค้นด้วยแท็ก "v8.3-ORDHIST" / "v8.2-ORDHIST" -->
+<!-- [v8.2-ORDHIST] (2026-10-06) My Trades → Futures-Contract → Order History หายหลัง refresh — ค้นด้วยแท็ก "v8.2-ORDHIST" · แก้เฉพาะ HTML (GAS ใช้ v6 ตัวเดิม ไม่ต้อง deploy ใหม่)
+     สาเหตุ: ชีต Orders เก็บแค่ Limit · Market เปิด/ปิดไม่เคยถูกบันทึกเป็น order → มีแค่แถวใน memory (HIST.logOpen/logClose) แล้วหายตอน refresh
+     แก้: สร้างแถวกลับจาก Positions (เปิด) + Trades ที่มี position_id (ปิด) [_reconContractOrders] · _mapGasOrderHistory แสดง CloseLimit เป็น Close/Reduce-only ถูกต้อง · กันซ้ำกับแถวชั่วคราว (_local) ใน _mergeIntoHIST
+     ไม่แตะ: logOpen/logClose logic อื่น · Trade/Position/Transaction History · Futures-Direct · ฝั่ง GAS -->
 <!-- [v8.1-POSHIST] (2026-10-06) ตรวจ v7 ใน v8: แพตช์ v7-POSHIST-CLOSE ทำงานครบ แต่เก็บตก 2 จุด — แก้เฉพาะ HTML (GAS ใช้ v6 ตัวเดิม) · ค้นด้วยแท็ก "v8.1-POSHIST"
      (1) แถว Partially Closed ชั่วคราวไม่มี ts → _sortDesc ดันไปท้ายลิสต์ (ปิดบางส่วนแล้วดูเหมือนไม่ขึ้น) → ใส่ ts ทั้งตอนสร้างและตอนอัปเดต [v8.1-POSHIST-TS]
      (2) _mergeIntoHIST first-load ล้างแถวชั่วคราวทิ้งก่อนกติกา v7 จะทำงาน → เก็บเฉพาะแถว _local ที่อายุ < 2 นาที [v8.1-POSHIST-KEEP]
@@ -2997,6 +3003,12 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 .chg-pill.up{background:var(--g);color:#000}
 .chg-pill.dn{background:var(--r);color:#fff}
 .chg-pill.flat{background:var(--bg4);color:var(--t2)}
+/* [vx17-MKT-ROW] Market list row — โครงสร้างตาม tcc_futures.html (Symbol Picker .slist .it): symbol หนา + tag Perp + ชื่อ/ข้อมูลจาง ; ราคา + %เปลี่ยนแปลงเป็นตัวอักษรสี */
+.mkt-tag{background:var(--bg3);border:1px solid var(--border);color:var(--t2);font-size:10px;font-weight:500;line-height:1;padding:3px 5px;border-radius:4px;margin-left:5px;white-space:nowrap}
+.mkt-tag.spot{background:rgba(14,203,129,.12);color:var(--g);border-color:rgba(14,203,129,.25)}
+.mkt-tag.metal{background:rgba(240,185,11,.12);color:var(--y);border-color:rgba(240,185,11,.3)}
+.mkt-chg{font-size:13px;font-weight:600;font-family:var(--mono);min-width:64px;text-align:right}
+.mkt-chg.up{color:var(--g)}.mkt-chg.dn{color:var(--r)}.mkt-chg.flat{color:var(--t2)}
 .mkt-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px;gap:8px;color:var(--t3)}
 .spin-sm{width:18px;height:18px;border:2px solid var(--bl);border-top-color:var(--y);border-radius:50%;animation:spin2 .7s linear infinite}
 /* Spot */
@@ -3544,11 +3556,16 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 .ni:hover{opacity:.8}
 .ni svg{width:19px;height:19px}
 .ni-label{font-size:10px;color:var(--t2);font-weight:500}
-.ni.active .ni-label{color:var(--y)}
-.ni.active svg{stroke:var(--y)}
-.ni-dot{width:4px;height:4px;border-radius:50%;background:var(--y);margin-top:1px}
+.ni.active .ni-label{color:var(--t1)}
+.ni.active svg{stroke:var(--t1)}
+.ni-dot{display:none}
+/* [vx18-NAV-TCC] ไอคอน/ตัวอักษรแถบเมนูล่าง ตาม tcc_futures.html (.tabbar) */
+.ni{padding:6px 0 4px;gap:3px}
+.ni svg{width:23px;height:23px;stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round}
+.ni-label{font-size:11.5px;font-weight:400}
+.ni.active .ni-label{color:var(--t1)}
 .ni svg{stroke:var(--t2);transition:stroke .15s}
-.ni.active svg{stroke:var(--y)}
+.ni.active svg{stroke:var(--t1)}
 
 
 /* ── TOAST / NOTIFICATION ── */
@@ -8313,6 +8330,29 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 .futd-mr-label{display:flex;justify-content:space-between;font-size:10px;color:var(--t2);margin-bottom:2px}
 .futd-mr-bar-bg{height:3px;border-radius:2px;background:var(--bg4)}
 .futd-mr-bar-fill{height:3px;border-radius:2px;background:var(--g);transition:width .4s}
+/* [vx18-POS-CARD2] */
+.futd-pc-swap{font-size:14px;margin-left:2px;color:var(--t2);padding:0 2px;vertical-align:-3px;background:none;border:0;cursor:pointer}
+.futd-pc-rpnl{margin-top:12px;border:1px solid var(--border);border-radius:9px;padding:9px 12px;display:flex;align-items:center;font-size:12px;color:var(--t2);cursor:pointer}
+.futd-pc-rpnl>span:first-child{flex:1}
+.futd-pc-rpnl>span:nth-child(2){font-family:var(--mono);font-weight:600}
+/* [vx17-POS-CARD] Futures-Direct Position card — layout ตาม tcc_futures.html (.pcard) ; ใช้ prefix futd-pc- เพื่อไม่ชน .futd-pos-row ที่ Orders/Assets ใช้ร่วม */
+.futd-pc{padding:14px 12px 14px;margin-bottom:8px;background:var(--bg2);border:1px solid var(--border);border-radius:10px}
+.futd-pc-h{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--t1);flex-wrap:wrap}
+.futd-pc-badge{width:18px;height:18px;border-radius:4px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+.futd-pc-badge.L{background:var(--g)}.futd-pc-badge.S{background:var(--r)}
+.futd-pc-tag{font-size:10.5px;font-weight:500;line-height:1;background:var(--bg3);border:1px solid var(--border);color:var(--t2);border-radius:4px;padding:3px 6px;white-space:nowrap}
+.futd-pc-risk{display:flex;gap:1.5px;margin-left:2px;align-items:center;height:12px}
+.futd-pc-risk i{width:2px;height:12px;border-radius:1px;background:var(--bg4);display:block}
+.futd-pc-prow{display:flex;justify-content:space-between;align-items:flex-start;margin-top:12px;font-size:11.5px;color:var(--t2)}
+.futd-pc-dot{border-bottom:1px dotted var(--t3);line-height:1.35}
+.futd-pc-big{font-size:20px;font-weight:700;margin-top:3px;font-family:var(--mono)}
+.futd-pc-g3{display:grid;grid-template-columns:1fr 1fr 1fr;margin-top:12px;row-gap:11px;column-gap:6px}
+.futd-pc-g3>div{font-size:11px;color:var(--t2);min-width:0}
+.futd-pc-g3>div:nth-child(3n){text-align:right}
+.futd-pc-g3>div:nth-child(3n) .futd-pc-dot{display:inline-block}
+.futd-pc-g3 b{display:block;font-size:13.5px;font-weight:500;color:var(--t1);margin-top:3px;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis}
+.futd-pc-tpsl{display:flex;align-items:center;gap:4px;margin-top:12px;flex-wrap:wrap}
+
 /* ── Chart panel (page-futures-direct) ── */
 #futdChartPanel{
   position:fixed;bottom:52px;left:0;right:0;
@@ -9267,24 +9307,24 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:13px
 
 <div class="bnav">
   <div class="ni" id="ni-home" onclick="navTo('home')">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11L12 4l8.5 7M6 9.5V20h12V9.5M10 20v-5h4v5"/></svg>
     <span class="ni-label">Home</span>
   </div>
   <div class="ni" id="ni-markets" onclick="navTo('markets')">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M4 16l5-6 4 3 7-8M15 5h5v5"/></svg>
     <span class="ni-label">Markets</span>
   </div>
   <div class="ni active" id="ni-trade" onclick="navTo('trade')">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2.5 2.5"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 14-5l2 2M20 4v5h-5M20 12a8 8 0 0 1-14 5l-2-2M4 20v-5h5"/></svg>
     <span class="ni-label">Trade</span>
     <div class="ni-dot"></div>
   </div>
   <div class="ni" id="ni-futures" onclick="navTo('futures')">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h3"/><path d="M15.2 17l2-2 2 2-2 2z" fill="#fcd535" stroke="none"/></svg>
     <span class="ni-label">Futures</span>
   </div>
   <div class="ni" id="ni-assets" onclick="navTo('assets')">
-    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM4 8l2.5-3.5H16"/><circle cx="15.5" cy="14" r="1.2" fill="currentColor" stroke="none"/></svg>
     <span class="ni-label">Assets</span>
   </div>
 </div>
@@ -9676,8 +9716,8 @@ textarea.tc-inp{resize:vertical;min-height:72px;}
 @media(max-width:375px){
   /* Bottom nav: tighter padding for very narrow screens */
   .ni{padding:5px 0 4px;gap:2px}
-  .ni svg{width:17px;height:17px}
-  .ni-label{font-size:9px}
+  .ni svg{width:21px;height:21px}
+  .ni-label{font-size:10.5px}
   /* Position card: tighten grid on small screens */
   .dg{grid-template-columns:repeat(2,1fr);gap:5px 4px}
   .act-btns{grid-template-columns:repeat(3,1fr);gap:4px}
@@ -14595,10 +14635,10 @@ function renderMarket() {
     const isMetal = r.isMetal || _isMetalCoin(r.coin);
     const metalIcon = isMetal ? (METAL_ICONS[r.coin] || r.coin.slice(0,2)) : null;
     const typeTag = isSpot
-      ? `<span style="background:rgba(14,203,129,.12);color:var(--g);font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid rgba(14,203,129,.25);font-weight:600;margin-left:3px">Spot</span>`
+      ? `<span class="mkt-tag spot">Spot</span>`
       : isMetal
-        ? `<span style="background:rgba(240,185,11,.12);color:var(--y);font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid rgba(240,185,11,.3);font-weight:600;margin-left:3px">&#127885; Metal</span>`
-        : `<span style="background:var(--bg4);color:var(--t2);font-size:9px;padding:1px 4px;border-radius:3px;border:1px solid var(--bl);font-weight:500;margin-left:3px">Perp</span>`;
+        ? `<span class="mkt-tag metal">&#127885; Metal</span>`
+        : `<span class="mkt-tag">Perp</span>`;
     const nameHtml = isSpot
       ? `<span class="mkt-name">${r.coin}</span><span style="font-size:11px;color:var(--t2)">/USDC</span>${typeTag}`
       : isMetal
@@ -14619,10 +14659,10 @@ function renderMarket() {
         </div>
       </div>
       <div class="mkt-price-col">
-        <div class="mkt-price" style="color:${isUp?'var(--g)':'var(--r)'}">${fmtP(r.price)}</div>
+        <div class="mkt-price" style="font-size:13.5px">${fmtP(r.price)}</div>
         <div class="mkt-price-usd">$${fmtP(r.price)}</div>
       </div>
-      <div class="chg-pill ${chgCls}">${chgStr}</div>
+      <div class="mkt-chg ${chgCls}">${chgStr}</div>
     </div>`;
   }).join('');
 
@@ -16428,7 +16468,7 @@ async function _astRefreshBalanceIfStale() {
     if (dash.trades)       _mergeIntoHIST('tradeHistory',       dash.trades);
     if (dash.funding)      _mergeIntoHIST('fundingFee',         dash.funding);
     if (dash.positions)    _mergeIntoHIST('positionHistory',    dash.positions.filter(p => p.status !== 'Active'));
-    if (dash.orderHistory) _mergeIntoHIST('orderHistory',       dash.orderHistory); // [v8.9 NEW]
+    _mergeOrderHistoryFromDash(dash); // [v8.9 NEW][v8.2-ORDHIST] + สร้างแถว Market เปิด/ปิดกลับจาก Positions/Trades
     if (dash.spotTrades)   _mergeIntoHIST('spotTradeHistory',   dash.spotTrades);
     // [v2.63-HEDGE] Futures-Direct history populate
     if (dash.futdClosedPos)   _mergeIntoHIST('futdPositionHistory',    dash.futdClosedPos);
@@ -16537,7 +16577,7 @@ async function _astFetchAllHistoryIfEmpty() {
     if (dash.trades)          _mergeIntoHIST('tradeHistory',          dash.trades);
     if (dash.funding)         _mergeIntoHIST('fundingFee',            dash.funding);
     if (dash.positions)       _mergeIntoHIST('positionHistory',       dash.positions.filter(p => p.status !== 'Active'));
-    if (dash.orderHistory)    _mergeIntoHIST('orderHistory',          dash.orderHistory); // [v8.9 NEW]
+    _mergeOrderHistoryFromDash(dash); // [v8.9 NEW][v8.2-ORDHIST]
     if (dash.spotTrades)      _mergeIntoHIST('spotTradeHistory',      dash.spotTrades);
     // [v2.63-HEDGE] Futures-Direct
     if (dash.futdClosedPos)   _mergeIntoHIST('futdPositionHistory',    dash.futdClosedPos);
@@ -16583,7 +16623,7 @@ async function _astForceRefreshBalance() {
     if (dash && dash.trades)          _mergeIntoHIST('tradeHistory',          dash.trades);
     if (dash && dash.funding)         _mergeIntoHIST('fundingFee',            dash.funding);
     if (dash && dash.positions)       _mergeIntoHIST('positionHistory',       dash.positions.filter(p => p.status !== 'Active')); // [v7 FIX]
-    if (dash && dash.orderHistory)    _mergeIntoHIST('orderHistory',          dash.orderHistory); // [v8.9 NEW]
+    _mergeOrderHistoryFromDash(dash); // [v8.9 NEW][v8.2-ORDHIST]
     if (dash && dash.spotTrades)      _mergeIntoHIST('spotTradeHistory',      dash.spotTrades); // [v7 FIX]
     // [v2.63-HEDGE] Futures-Direct
     if (dash && dash.futdClosedPos)   _mergeIntoHIST('futdPositionHistory',    dash.futdClosedPos);
@@ -24132,6 +24172,7 @@ const HIST = {
       amount: this.fmtNum(pos.size) + '/' + this.fmtNum(pos.size),
       price: this.fmtPrice(pos.entry) + '/' + (orderTypeTxt==='Market'?'Market':this.fmtPrice(pos.entry)),
       status: 'Filled',
+      _local: true, _posId: pos.id, _kind: 'open', _sz: parseFloat(pos.size) || 0, // [v8.2-ORDHIST] ให้ _mergeIntoHIST แทนด้วยแถวจริงโดยไม่ซ้ำ
     });
 
     // 2. Trade History
@@ -24204,6 +24245,7 @@ const HIST = {
       amount: this.fmtNum(closeAmt) + '/' + this.fmtNum(closeAmt),
       price: this.fmtPrice(exitPrice) + '/' + (orderTypeTxt==='Market'?'Market':this.fmtPrice(exitPrice)),
       reduceOnly: 'True', status:'Filled',
+      _local: true, _posId: pos.id, _kind: 'close', _sz: parseFloat(closeAmt) || 0, // [v8.2-ORDHIST]
     });
 
     // 2. Trade History
@@ -24688,7 +24730,12 @@ function _mytCtrFetch(cid) {
   try { _DB_READ_ACTIONS.add('getContractHistory'); } catch (e) {}   // read-only → dedupe in-flight + retry เมื่อ Timeout
   dbCallRaw('getContractHistory', { uid: uid, contract_id: cid, limit: 200 }).then(res => {
     if (!res) throw new Error('empty response');
-    if (Array.isArray(res.orderHistory) && res.orderHistory.length) _mergeIntoHIST('orderHistory', res.orderHistory);
+    // [v8.2-ORDHIST] orderHistory จาก GAS + แถวปิดที่สร้างกลับจาก trades ของสัญญานี้ (ไม่มี positions ในคำตอบนี้ → แถวเปิดมาจาก dashboard ตามเดิม)
+    {
+      let _ordRows = Array.isArray(res.orderHistory) ? res.orderHistory.slice() : [];
+      try { _ordRows = _ordRows.concat(_reconContractOrders(null, res.trades, res.orderHistory)); } catch (e) { console.warn('[ORDHIST] recon fail:', e && e.message); }
+      if (_ordRows.length) _mergeIntoHIST('orderHistory', _ordRows);
+    }
     if (Array.isArray(res.trades)       && res.trades.length)       _mergeIntoHIST('tradeHistory', res.trades);
     if (Array.isArray(res.funding)      && res.funding.length)      _mergeIntoHIST('fundingFee',   res.funding);
     _MYT_CTR.fetched[cid] = 'ok';
@@ -32853,7 +32900,7 @@ async function loadDashboard() {
   if (dash && dash.trades)          _mergeIntoHIST('tradeHistory',          dash.trades);
   if (dash && dash.spotTrades)      _mergeIntoHIST('spotTradeHistory',      dash.spotTrades);
   if (dash && dash.positions)       _mergeIntoHIST('positionHistory',       dash.positions.filter(p => p.status !== 'Active'));
-  if (dash && dash.orderHistory)    _mergeIntoHIST('orderHistory',          dash.orderHistory); // [v8.9 NEW]
+  _mergeOrderHistoryFromDash(dash); // [v8.9 NEW][v8.2-ORDHIST]
   if (dash && dash.funding)         _mergeIntoHIST('fundingFee',            dash.funding);
   // [v2.63-HEDGE] Futures-Direct
   if (dash && dash.futdClosedPos)   _mergeIntoHIST('futdPositionHistory',    dash.futdClosedPos);
@@ -33183,10 +33230,13 @@ function _mapGasOrderHistory(r) {
   const coin = sym ? sym.replace(/USDT$/i, '').replace(/-PERP$/i, '') : '—';
   const side = (r.side || 'long').toLowerCase();
   const isLong = side === 'long';
-  // หมายเหตุ: OpenOrders sheet เก็บเฉพาะ limit order สำหรับ "เปิด" position เท่านั้น (TP/SL trigger ปิด position ตรงๆ ไม่ผ่าน sheet นี้)
-  const dirLabel = isLong ? 'Open Long' : 'Open Short';
-  const dirClass = isLong ? 'open-long' : 'open-short';
-  const orderTypeTxt = r.order_type || 'Limit';
+  // [v8.2-ORDHIST] ออเดอร์ปิด (CloseLimit จาก ORDERS · CloseMarket จากการสร้างกลับ _reconContractOrders): side = ทิศของออเดอร์ (long = ซื้อ = ปิด Short)
+  //   เดิมทุกแถวถูก label เป็น "Open" + reduceOnly False → CloseLimit ที่ Filled แสดงผิดเป็น Open Short/Long
+  const _otRaw  = String(r.order_type || '');
+  const isClose = /^close[\s_-]?(limit|market)$/i.test(_otRaw) || /^cordc_/i.test(String(r.order_id || '')); // [v8.3-ORDHIST] cordc_ = Market close ที่ GAS closePosition บันทึกไว้ (order_type 'Market', side ตรงข้าม position, limit_price = ราคาปิดจริง)
+  const dirLabel = isClose ? (isLong ? 'Close Short' : 'Close Long') : (isLong ? 'Open Long' : 'Open Short');
+  const dirClass = isClose ? (isLong ? 'close-short' : 'close-long') : (isLong ? 'open-long' : 'open-short');
+  const orderTypeTxt = isClose ? (/limit/i.test(_otRaw) ? 'Limit' : 'Market') : (r.order_type || 'Limit');
   const dirFull = orderTypeTxt + ' / ' + dirLabel;
   const size = parseFloat(r.size) || 0;
   const limitPrice = parseFloat(r.limit_price) || 0;
@@ -33204,10 +33254,90 @@ function _mapGasOrderHistory(r) {
     ts:         tsSrc ? Date.parse(tsSrc) : Date.now(),
     amount:     HIST.fmtNum(size) + '/' + HIST.fmtNum(size),
     price:      HIST.fmtPrice(limitPrice) + '/' + (orderTypeTxt === 'Market' ? 'Market' : HIST.fmtPrice(limitPrice)),
-    reduceOnly: 'False',
+    reduceOnly: isClose ? 'True' : 'False',
     contractId: r.contractId || r.contract_id || '', // [v6-MYT-CTR]
     status:     statusTxt,
+    _posId:     r.position_id ? String(r.position_id) : '', // [v8.2-ORDHIST] ใช้จับคู่/กันซ้ำกับแถวชั่วคราวจาก HIST.logOpen/logClose
+    _kind:      isClose ? 'close' : 'open',
+    _sz:        size,
   };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [v8.2-ORDHIST] Order History ฝั่ง Futures-Contract หายหลัง refresh
+//   สาเหตุ: GAS (ชีต Orders) เก็บแค่ Limit order — Market เปิด/ปิดไม่เคยถูกเขียนเป็น order record (ต่างจาก Futures-Direct ที่ closeFuturesPosition เขียน FUT_ORD ไว้)
+//     HIST.logOpen/logClose จึงสร้างแถวแค่ใน memory → refresh แล้ว HIST ถูกล้าง + GAS ไม่มีให้ดึงกลับ
+//   แก้ฝั่ง HTML (ไม่ต้อง deploy GAS ใหม่): สร้างแถว Order History กลับจากข้อมูลที่ GAS เก็บถาวรอยู่แล้ว
+//     • ออเดอร์เปิด  ← ชีต Positions ทุกแถว (symbol/side/entry_price/max_oi/opened_at/earn_contract_id) — ข้าม id 'limit_*' เพราะมีแถว Filled ใน Orders อยู่แล้ว
+//     • ออเดอร์ปิด  ← ชีต Trades ที่มี position_id + dir Buy/Sell (saveTrade ตอนปิด) — ข้ามถ้ามี CloseLimit ที่ Filled ของ position/ขนาด/เวลาเดียวกันใน Orders แล้ว
+//   ผลลัพธ์อยู่ในรูป raw แบบชีต Orders → วิ่งผ่าน _mapGasOrderHistory ตัวเดียวกัน · id คงที่ (rcopen_/rcclose_) → merge ซ้ำกี่รอบก็ไม่ซ้ำ
+//   ข้อจำกัดที่รู้: position ที่ GAS รวม (merge) หลายออเดอร์เปิดเป็นแถวเดียวจะเห็นเป็นออเดอร์เปิดเดียว · ปิดโดย GAS engine (TP/SL ตอนปิดแอป) ไม่มี trade → ไม่มีแถวปิด
+// ══════════════════════════════════════════════════════════════════
+function _reconContractOrders(positions, trades, orderRows) {
+  const out = [];
+  const norm = v => String(v == null ? '' : v).trim();
+  const posList = Array.isArray(positions) ? positions : [];
+  const posMap  = new Map();
+  posList.forEach(p => { if (p && p.id != null) posMap.set(norm(p.id), p); });
+  const _cidOf = p => norm(p && (p.earnContractId || p.earn_contract_id || p.contract_id));
+  // แถวปิดที่ GAS บันทึกไว้แล้วใน Orders (CloseLimit ที่ Filled · cordc_ = Market close จาก GAS v6.1) → ไม่สร้างแถวปิดซ้ำจาก Trades
+  //   จับคู่แบบ 1:1 (แถว Orders 1 แถวกัน trade ได้ 1 รายการ) ด้วย position + ขนาดเท่ากัน + เวลาใกล้สุดไม่เกิน 30 นาที (เวลาฝั่ง server/client ต่างกัน + QUEUE retry)
+  const clRows = (Array.isArray(orderRows) ? orderRows : []).filter(o =>
+    o && norm(o.position_id) && /^filled$/i.test(norm(o.status))
+      && (/^close[\s_-]?limit$/i.test(norm(o.order_type)) || /^cordc_/i.test(norm(o.order_id)))
+  ).map(o => ({ pid: norm(o.position_id), sz: parseFloat(o.size) || 0, ms: Date.parse(o.updated_at || o.created_at) || 0, used: false }));
+
+  posList.forEach(p => {
+    if (!p || p.id == null) return;
+    const pid = norm(p.id);
+    if (!pid || /^limit_/i.test(pid)) return;
+    const sz  = parseFloat(p.max_oi) || parseFloat(p.size) || 0;
+    const tms = p.opened_at ? Date.parse(p.opened_at) : NaN;
+    if (!(sz > 0) || isNaN(tms)) return;
+    out.push({
+      order_id: 'rcopen_' + pid, contract_id: _cidOf(p), symbol: p.symbol || '',
+      order_type: 'Market', side: norm(p.side || 'long').toLowerCase(), size: sz,
+      limit_price: parseFloat(p.entry_price) || 0, status: 'Filled',
+      created_at: p.opened_at, updated_at: p.opened_at, position_id: pid,
+    });
+  });
+
+  (Array.isArray(trades) ? trades : []).forEach(t => {
+    if (!t) return;
+    const pid  = norm(t.position_id);
+    if (!pid) return;
+    const dirL = norm(t.dir).toLowerCase();
+    if (dirL !== 'buy' && dirL !== 'sell') return;       // 'open-long' ฯลฯ = trade ของ Limit fill (มีใน Orders แล้ว)
+    const pos  = posMap.get(pid);
+    const cid  = norm(t.earnContractId || t.contract_id) || _cidOf(pos);
+    if (!cid && !pos) return;                            // ไม่ผูกสัญญา/ไม่ใช่ position ของ Contract (เช่น Futures-Direct) → ไม่เกี่ยว
+    const sz   = parseFloat(t.filled) || 0;
+    const tms  = t.created_at ? Date.parse(t.created_at) : NaN;
+    if (!(sz > 0) || isNaN(tms)) return;
+    let _best = null, _bestDt = 1800000;
+    clRows.forEach(c => {
+      if (c.used || c.pid !== pid || Math.abs(c.sz - sz) > 1e-6 * Math.max(1, sz)) return;
+      const dt = Math.abs(c.ms - tms);
+      if (dt < _bestDt) { _best = c; _bestDt = dt; }
+    });
+    if (_best) { _best.used = true; return; }
+    out.push({
+      order_id: 'rcclose_' + pid + '_' + tms + '_' + sz, contract_id: cid, symbol: t.symbol || (pos && pos.symbol) || '',
+      order_type: 'CloseMarket', side: dirL === 'sell' ? 'short' : 'long', size: sz,
+      limit_price: parseFloat(t.price) || 0, status: 'Filled',
+      created_at: t.created_at, updated_at: t.created_at, position_id: pid,
+    });
+  });
+  return out;
+}
+
+/** รวม orderHistory จาก GAS + แถวที่สร้างกลับ (_reconContractOrders) แล้ว merge ครั้งเดียว — ใช้แทน _mergeIntoHIST('orderHistory', dash.orderHistory) ทุกจุดที่รับ dashboard */
+function _mergeOrderHistoryFromDash(dash) {
+  if (!dash) return;
+  let rows = Array.isArray(dash.orderHistory) ? dash.orderHistory.slice() : [];
+  try { rows = rows.concat(_reconContractOrders(dash.positions, dash.trades, dash.orderHistory)); }
+  catch (e) { console.warn('[ORDHIST] recon fail (ใช้เฉพาะ orderHistory จาก GAS):', e && e.message); }
+  if (rows.length) _mergeIntoHIST('orderHistory', rows);
 }
 
 // [v9.5 FIX] ดึง txid จริงที่ backend ฝังไว้ใน note ด้วย tag [txid:...]
@@ -33458,7 +33588,8 @@ function _mergeIntoHIST(key, rows) {
     //   เดิม: ปิด position แล้วเปิด My Trades ก่อน GAS commit → merge แรกล้างแถวที่เพิ่งปิดทิ้ง (ตัวกันแถวหายด้านล่างใช้ไม่ได้เพราะ HIST ถูกล้างไปแล้ว)
     //   ตอนนี้: แถวที่เหลือจะถูกตัดสินต่อด้วยกติกา _local ด้านล่างตามเดิม (GAS แถวจริงมาแทน / ยังไม่ Closed → เก็บไว้)
     //   แถว cache เก่าและแถวชั่วคราวที่เก่ากว่า 2 นาทียังถูกล้างตามเจตนาเดิมของ first-load
-    HIST[key] = (key === 'positionHistory')
+    // [v8.2-ORDHIST] orderHistory ใช้กติกาเดียวกัน (แถวชั่วคราวจาก HIST.logOpen/logClose ถูกติด _local ไว้)
+    HIST[key] = (key === 'positionHistory' || key === 'orderHistory')
       ? (HIST[key] || []).filter(h => h && h._local && (Date.now() - (h.ts || 0)) < 120000)
       : []; // clear ก่อน merge ครั้งแรก
   }
@@ -33512,6 +33643,20 @@ function _mergeIntoHIST(key, rows) {
     newRows = newRows.map(_mapGasFundingFee);
   } else if (key === 'orderHistory') {
     newRows = newRows.map(_mapGasOrderHistory);
+    // [v8.2-ORDHIST] แถวจริง (จาก GAS/สร้างกลับ) มาแทนแถวชั่วคราวของ position เดียวกัน → ไม่ซ้ำ
+    //   เปิด: จับคู่ด้วย position id · ปิด: position id + ขนาดเท่ากัน + เวลาห่างไม่เกิน 10 นาที (แถว cordc_ ใช้เวลา server) (ปิดบางส่วนหลายครั้งไม่ปนกัน) · แถวจริง 1 แถวแทนได้ 1 แถวชั่วคราว
+    if (newRows.length) {
+      const _used = new Set();
+      HIST[key] = (HIST[key] || []).filter(h => {
+        if (!h || !h._local || !h._posId) return true;
+        const m = newRows.find(r => r._posId && !_used.has(r.id)
+          && String(r._posId) === String(h._posId) && r._kind === h._kind
+          && (h._kind === 'open' || (Math.abs((r.ts || 0) - (h.ts || 0)) < 600000
+              && Math.abs((r._sz || 0) - (h._sz || 0)) <= 1e-6 * Math.max(1, Math.abs(h._sz || 0)))));
+        if (m) { _used.add(m.id); return false; }
+        return true;
+      });
+    }
   } else if (key === 'transactionHistory') {
     // [v9.1] map GAS raw rows → UI shape (เพิ่ม time/ts/type field)
     // [vx5-FIX-TS] _mapGasTransaction: ถ้าไม่มี created_at ให้ fallback ไป r.time ก่อน Date.now()
@@ -41440,6 +41585,39 @@ function _futdClientCrossLiq(targetId, allPositions, equity, mmr) {
   return (isFinite(liqRaw) && liqRaw > 0) ? liqRaw : 0;
 }
 
+/* [vx18-POS-CARD2] helper: สลับหน่วย Size (coin ↔ USDT) + Realized PNL ราย Position (Direct) */
+const _FUTD_SVG_SWAP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4"/></svg>';
+const _FUTD_SVG_CHEV = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="margin-left:8px"><path d="M9 5l7 7-7 7"/></svg>';
+function futdFmtUsdt(n) { return (parseFloat(n) || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function futdTogglePosUnit(id) {
+  FUTD.sizeUnit = FUTD.sizeUnit || {};
+  FUTD.sizeUnit[id] = FUTD.sizeUnit[id] === 'usdt' ? 'base' : 'usdt';
+  futdRenderPositions((FUTD.status && FUTD.status.positions) || []);
+}
+/** Realized PNL ของ position: ใช้ p.realized_pnl จาก GAS ถ้ามี ; ไม่มี → รวมจาก Trade History (ปิดบางส่วน) ของเหรียญ/ฝั่งเดียวกันตั้งแต่เปิด position */
+function futdPosRealizedPnl(p, coin) {
+  // [vx18-POS-RPNL] GAS ส่ง pos_realized_pnl (รวมจากชีต Trades ตาม position_id) — แถว realized_pnl ของ position ที่ยังเปิดจะเป็น 0 เสมอจึงไม่ใช้
+  const direct = parseFloat(p.pos_realized_pnl);
+  if (isFinite(direct)) return direct;
+  const openedTs = p.opened_at ? Date.parse(p.opened_at) : 0;
+  const want = p.side === 'long' ? 'close-long' : 'close-short';
+  const ps = String(p.position_side || 'BOTH').toUpperCase();
+  let sum = 0;
+  ((typeof HIST !== 'undefined' && HIST.futdTradeHistory) || []).forEach(d => {
+    if (!d || d.coin !== coin || d.dirClass !== want) return;
+    if (ps !== 'BOTH' && String(d.positionSide || 'BOTH').toUpperCase() !== ps) return;
+    if (openedTs && d.ts && d.ts < openedTs) return;
+    const v = parseFloat(String(d.realizedPnl).replace(/,/g, ''));
+    if (isFinite(v)) sum += v;
+  });
+  return sum;
+}
+function futdShowRealized(id) {
+  const p = ((FUTD.status && FUTD.status.positions) || []).find(x => String(x.id) === String(id)); if (!p) return;
+  const v = futdPosRealizedPnl(p, (p.symbol || '').replace('USDT', ''));
+  if (typeof showToast === 'function') showToast('Realized PNL: ' + (v > 0 ? '+' : '') + v.toFixed(2) + ' USDT');
+}
+
 function futdRenderPositions(positions) {
   const el = document.getElementById('futd-positions-list');
   if (!el) return;
@@ -41576,37 +41754,32 @@ function futdRenderPositions(positions) {
       ? `<span style="font-size:9px;background:rgba(114,137,218,.15);color:#7289da;border:1px solid rgba(114,137,218,.4);border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:700">HEDGE</span>`
       : '';
 
-    return `<div class="futd-pos-row" id="futd-pos-${p.id}">
-      <div class="futd-pos-top">
-        <div>
-          <span class="futd-pos-sym">${p.symbol}</span>
-          <span class="futd-pos-side ${p.side}">${p.side === 'long' ? 'LONG' : 'SHORT'} x${p.lev}</span>${modeBadge}${hedgeBadge}
-        </div>
-        <div style="text-align:right">
-          <div class="futd-pos-pnl" style="color:${upnlColor}" id="futd-upnl-${p.id}">
-            ${upnl >= 0 ? '+' : ''}${upnl.toFixed(2)} USDT
-          </div>
-          <div class="futd-pos-roi" style="color:${upnlColor}" id="futd-roi-${p.id}">
-            ${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%
-          </div>
-        </div>
+    // [vx17-POS-CARD] layout ใหม่ตาม tcc_futures.html — คง id/onclick เดิมทั้งหมด (futdUpdatePnlCards ใช้ futd-upnl/roi/mark)
+    const _L        = p.side === 'long';
+    const _litN     = Math.max(1, Math.min(4, Math.ceil(mrPct / 25)));
+    const _riskBars = `<span class="futd-pc-risk">${[0,1,2,3].map(i => `<i style="${i < _litN ? 'background:' + mrColor : ''}"></i>`).join('')}</span>`;
+    const _modeTxt  = posMode === 'isolated' ? 'Isolated' : 'Cross';
+    const _mgnTxt   = (Math.floor(margin * 100 + 1e-6) / 100).toFixed(2);
+    const _isUsdt   = !!(FUTD.sizeUnit && FUTD.sizeUnit[p.id] === 'usdt');
+    const _szUnit   = _isUsdt ? 'USDT' : coin;
+    const _szTxt    = _isUsdt ? futdFmtUsdt(size * (markP || entryP)) : String(parseFloat(size.toFixed(4)));
+    const _rz       = futdPosRealizedPnl(p, coin);
+    const _rzColor  = _rz > 0 ? 'var(--g)' : _rz < 0 ? 'var(--r)' : 'var(--t2)';
+    return `<div class="futd-pos-row futd-pc" id="futd-pos-${p.id}">
+      <div class="futd-pc-h"><span class="futd-pc-badge ${_L ? 'L' : 'S'}">${_L ? 'L' : 'S'}</span>${p.symbol}<span class="futd-pc-tag">Perp</span><span class="futd-pc-tag" style="cursor:pointer" onclick="futdAdjLeverage('${p.id}')">${_modeTxt} ${p.lev}x</span>${hedgeBadge}${_riskBars}</div>
+      <div class="futd-pc-prow"><span class="futd-pc-dot">PNL (USDT)</span><span class="futd-pc-dot">ROI</span></div>
+      <div class="futd-pc-prow" style="margin-top:2px"><span class="futd-pc-big" style="color:${upnlColor}" id="futd-upnl-${p.id}">${upnl >= 0 ? '+' : ''}${upnl.toFixed(2)}</span><span class="futd-pc-big" style="color:${upnlColor}" id="futd-roi-${p.id}">${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%</span></div>
+      <div class="futd-pc-g3">
+        <div><span class="futd-pc-dot">Size (${_szUnit}) </span><button class="futd-pc-swap" onclick="futdTogglePosUnit('${p.id}')" aria-label="swap unit">${_FUTD_SVG_SWAP}</button><b id="futd-sz-${p.id}">${_szTxt}</b></div>
+        <div><span>Margin (USDT)</span><b>${_mgnTxt}</b></div>
+        <div><span class="futd-pc-dot">Margin Ratio</span><b style="color:${mrColor}">${mrPct.toFixed(2)}%</b></div>
+        <div><span class="futd-pc-dot">Entry Price (USDT)</span><b>${fmtPosPx(entryP)}</b></div>
+        <div><span class="futd-pc-dot">Mark Price (USDT)</span><b id="futd-mark-${p.id}">${markStr}</b></div>
+        <div><span class="futd-pc-dot">Liq. Price (USDT)</span><b style="color:var(--r)">${liqStr}</b></div>
       </div>
-      <div class="futd-pos-detail">
-        <div>Size (${coin})<b>${parseFloat(size.toFixed(4))}</b></div>
-        <div>Margin (USDT)<b>${margin.toFixed(2)} <span style="font-size:9px;color:var(--t3)">(≈$${(size * (markP || entryP)).toFixed(2)})</span></b></div>
-        <div>Margin Ratio<b style="color:${mrColor}">${mrPct.toFixed(1)}%</b></div>
-      </div>
-      <div class="futd-pos-detail2">
-        <div>Avg Entry<b>${fmtPosPx(entryP)}</b></div>
-        <div>Mark Price<b id="futd-mark-${p.id}">${markStr}</b></div>
-        <div>Liq. Price<b style="color:var(--r)">${liqStr}</b></div>
-      </div>
-      <div class="futd-mr-bar-wrap">
-        <div class="futd-mr-label"><span>Margin Ratio</span><span style="color:${mrColor}">${mrPct.toFixed(1)}%</span></div>
-        <div class="futd-mr-bar-bg"><div class="futd-mr-bar-fill" style="width:${mrPct.toFixed(1)}%;background:${mrColor}"></div></div>
-      </div>
-      <div class="futd-pos-tpsl-row">${tpChip}${slChip}${trailChip}</div>
-      <div class="futd-pos-actions">
+      <div class="futd-pc-tpsl">${tpChip}${slChip}${trailChip}</div>
+      <div class="futd-pc-rpnl" onclick="futdShowRealized('${p.id}')"><span>Realized PNL (USDT)</span><span id="futd-rz-${p.id}" style="color:${_rzColor}">${_rz > 0 ? '+' : ''}${_rz.toFixed(2)}</span>${_FUTD_SVG_CHEV}</div>
+      <div class="futd-pos-actions" style="margin-top:12px">
         <div class="futd-btn-sm" onclick="futdAdjLeverage('${p.id}')">Leverage</div>
         <div class="futd-btn-sm warn" onclick="futdOpenTpslSheet('${p.id}')">TP/SL</div>
         ${posMode === 'isolated' ? `<div class="futd-btn-sm" style="color:var(--y);border-color:rgba(240,185,11,.4)" onclick="futdOpenMarginSheet('${p.id}')">+Margin</div>` : ''}
@@ -41636,9 +41809,11 @@ function futdUpdatePnlCards() {
     const upnlEl = document.getElementById('futd-upnl-' + p.id);
     const roiEl  = document.getElementById('futd-roi-'  + p.id);
     const markEl = document.getElementById('futd-mark-' + p.id);
-    if (upnlEl) { upnlEl.textContent = (upnl >= 0 ? '+' : '') + upnl.toFixed(2) + ' USDT'; upnlEl.style.color = upnlColor; }
+    if (upnlEl) { upnlEl.textContent = (upnl >= 0 ? '+' : '') + upnl.toFixed(2); upnlEl.style.color = upnlColor; }
     if (roiEl)  { roiEl.textContent  = (roiPct >= 0 ? '+' : '') + roiPct.toFixed(2) + '%'; roiEl.style.color  = upnlColor; }
     if (markEl) { markEl.textContent = fmtPosPx(markP); } // [vx13-POS-PX]
+    const szEl = document.getElementById('futd-sz-' + p.id);   // [vx18-POS-CARD2] Size หน่วย USDT ขยับตาม mark
+    if (szEl && FUTD.sizeUnit && FUTD.sizeUnit[p.id] === 'usdt') szEl.textContent = futdFmtUsdt(size * markP);
   });
   // [vx12-AVBL-LIVE] Avbl ขยับตาม PnL ทุก tick เดียวกับการ์ด Position
   futdUpdateAvblLive();
@@ -42228,6 +42403,10 @@ async function _futdClosePartial(pos, closeSize) {
     try { futdUpdateBalanceBar(FUTD.status); } catch (e) {}
   }
 
+  if (act === 'reduced' && isFinite(_rpnl) && FUTD.status) {   // [vx18-POS-RPNL] optimistic: บวก Realized PNL ของครั้งนี้ทันที (refresh ถัดไป GAS ส่งค่าจริงทับ)
+    const _base = futdPosRealizedPnl(cur, coin);
+    FUTD.status.positions = (FUTD.status.positions || []).map(p => p.id === posId ? Object.assign({}, p, { pos_realized_pnl: +(_base + _rpnl).toFixed(8) }) : p);
+  }
   if (act === 'closed') {
     // server ปิดเต็ม (GAS เก่าไม่รู้จัก close_size / size เปลี่ยน) → ตัด position ออกเหมือนปิดเต็ม
     delete FUTD._reducing[posId];
