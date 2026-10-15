@@ -3122,7 +3122,7 @@ html{
 ══════════════════════════════════════════════════════ -->
 <div class="sidebar">
   <div class="sb-head"><span>Coins</span><span id="totalCoins" style="color:var(--b);">…</span></div>
-  <div class="sb-search"><input type="text" id="searchInput" placeholder="ค้นหาเหรียญ..." oninput="filterCoinList()"/></div>
+  <div class="sb-search"><input type="search" id="searchInput" name="coin_search_q" placeholder="ค้นหาเหรียญ..." oninput="filterCoinList()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" readonly onfocus="this.removeAttribute('readonly')"/></div>
   <div class="sb-sort">
     <button class="sb-sort-btn active-def" id="srt-def" onclick="setSbSort('def')" title="MCap">MCap</button>
     <button class="sb-sort-btn" id="srt-up" onclick="setSbSort('up')" title="% บวก">▲ TOP</button>
@@ -3767,11 +3767,11 @@ html{
         <div id="authFormLogin" class="auth-card-body">
           <div class="auth-field">
             <label class="auth-label">BNB ID (รหัสสมาชิก)</label>
-            <input class="auth-input" id="loginBnbId" type="text" placeholder="เช่น 123456789" inputmode="numeric"/>
+            <input class="auth-input" id="loginBnbId" type="text" placeholder="เช่น 123456789" inputmode="numeric" autocomplete="username"/>
           </div>
           <div class="auth-field">
             <label class="auth-label">Password</label>
-            <input class="auth-input" id="loginPassword" type="password" placeholder="รหัสผ่านของคุณ"/>
+            <input class="auth-input" id="loginPassword" type="password" placeholder="รหัสผ่านของคุณ" autocomplete="current-password"/>
           </div>
           <div class="auth-msg" id="loginMsg"></div>
           <button class="auth-submit-btn" id="loginBtn" onclick="authLogin()">🔑 เข้าสู่ระบบ</button>
@@ -3791,11 +3791,11 @@ html{
           </div>
           <div class="auth-field">
             <label class="auth-label">Email *</label>
-            <input class="auth-input" id="regEmail" type="email" placeholder="email@example.com"/>
+            <input class="auth-input" id="regEmail" type="email" placeholder="email@example.com" autocomplete="email"/>
           </div>
           <div class="auth-field">
             <label class="auth-label">Password *</label>
-            <input class="auth-input" id="regPassword" type="password" placeholder="ตั้งรหัสผ่าน (อย่างน้อย 6 ตัว)"/>
+            <input class="auth-input" id="regPassword" type="password" placeholder="ตั้งรหัสผ่าน (อย่างน้อย 6 ตัว)" autocomplete="new-password"/>
           </div>
           <div class="auth-msg" id="regMsg"></div>
           <button class="auth-submit-btn" id="regBtn" onclick="authRegister()" style="background:linear-gradient(135deg,#00a152,#00e676);color:#000;">✍️ สมัครสมาชิก</button>
@@ -6833,7 +6833,28 @@ function setSbSort(mode) {
   showAllPerps=false; showAllSpot=false; renderCoinList();
 }
 function sortCoins(arr){ if(sbSort==='up')return[...arr].sort((a,b)=>b.chg-a.chg); if(sbSort==='dn')return[...arr].sort((a,b)=>a.chg-b.chg); return arr; }
-function filterCoinList(){ searchQ=document.getElementById('searchInput').value.toUpperCase(); showAllPerps=false; showAllSpot=false; renderCoinList(); }
+// ✅ v49 FIX: Chrome autofill เคยเอาอีเมล/ข้อความที่บันทึกไว้มาใส่ช่องค้นหา → ไม่มีเหรียญตรงกับตัวกรอง → รายการเหรียญว่าง (PERPETUALS 0 / SPOT 0)
+//   ชื่อเหรียญมีเฉพาะ A-Z 0-9 (บางตัวมี . - _) → ค่าที่มี @ หรืออักขระแปลก ถือเป็น autofill: ล้างทิ้งแล้วแสดงรายการเต็ม
+function _looksAutofilled(v){ v=String(v||'').trim(); return /\s/.test(v) || /@.+\./.test(v) || /[^A-Za-z0-9@._\-\/]/.test(v); }
+function _sanitizeCoinSearch(){
+  const el = document.getElementById('searchInput');
+  if (!el) return '';
+  const raw = el.value || '';
+  if (_looksAutofilled(raw)) { el.value = ''; return ''; }
+  return raw.trim().toUpperCase();
+}
+function filterCoinList(){ searchQ=_sanitizeCoinSearch(); showAllPerps=false; showAllSpot=false; renderCoinList(); }
+// autofill อาจเกิดหลังโหลดหน้า/หลังคลิกครั้งแรก — ตรวจซ้ำและกู้รายการเหรียญ
+['DOMContentLoaded'].forEach(ev => document.addEventListener(ev, () => {
+  [300, 1200, 3000].forEach(ms => setTimeout(() => {
+    const el = document.getElementById('searchInput');
+    if (el && el.value && _sanitizeCoinSearch() === '' && searchQ) { searchQ = ''; try { renderCoinList(); } catch(e) {} }
+  }, ms));
+}));
+document.addEventListener('click', () => {
+  const el = document.getElementById('searchInput');
+  if (el && el.value && _looksAutofilled(el.value)) { el.value = ''; if (searchQ) { searchQ=''; try { renderCoinList(); } catch(e) {} } }
+}, true);
 
 function renderCoinList() {
   let fP=sortCoins(perpsCoins.filter(c=>c.name.includes(searchQ)));
@@ -7410,7 +7431,7 @@ function buildForecastPrompt(data, swData, mktCtx) {
     const to = nowMs - i * 3600000, from = to - 3600000;
     const inW = rows.filter(x => x.ms > from && x.ms <= to);
     const v = inW.reduce((s, x) => s + x.t.usd, 0);
-    return `${String(_anBkkHour(to)).padStart(2,'0')}:xx=${inW.length ? '$' + (v / 1e6).toFixed(2) + 'M/' + inW.length + 'T' : 'ว่าง'}`;
+    return `${String(_anBkkHour(to)).padStart(2,'0')}:xx=${inW.length ? '$' + (v / 1e6).toFixed(2) + 'M/' + inW.length + ' trades' : 'ว่าง'}`;
   }).join(', ');
 
   // Peak hour (ทุกวันรวมกัน) + Peak day (เมื่อมีข้อมูล ≥3 วัน)
@@ -7439,7 +7460,9 @@ function buildForecastPrompt(data, swData, mktCtx) {
   });
   const coinEntries = Object.entries(coinStats).sort((a, b) => b[1].n - a[1].n);
   const coinSummary = coinEntries.slice(0, 5)
-    .map(([c, v]) => `${c}(${v.n}T L${Math.round(v.l / ((v.l + v.s) || 1) * 100)}%/S${Math.round(v.s / ((v.l + v.s) || 1) * 100)}%)`).join(', ');
+    // ✅ v49: เดิมเขียน "BTC(283T L48%/S52%)" — "T" = จำนวน trades แต่ AI ตีความผิด (เห็นเป็นหน่วยพัน/ล้าน และอ้างว่า L/S เป็น % ของ trades)
+    //   ที่จริง L/S คิดตามมูลค่า USD → ระบุชัดทั้งจำนวน trades, มูลค่ารวม และฐานของ %
+    .map(([c, v]) => `${c}: ${v.n} trades, มูลค่า $${((v.l + v.s) / 1e6).toFixed(2)}M, สัดส่วนตามมูลค่า USD = LONG ${Math.round(v.l / ((v.l + v.s) || 1) * 100)}% / SHORT ${Math.round(v.s / ((v.l + v.s) || 1) * 100)}%`).join(' | ');
 
   // Momentum: 30 รายการล่าสุด vs 30 ก่อนหน้า (เรียงด้วยเวลาจริง)
   const rec30 = rows.slice(0, 30), prv30 = rows.slice(30, 60);
@@ -7470,10 +7493,10 @@ function buildForecastPrompt(data, swData, mktCtx) {
     const swLPct = Math.round(sw.filter(isL).length / sw.length * 100);
     const swHr = [0,1,2].map(i => {
       const to = nowMs - i * 3600000, from = to - 3600000;
-      return `${String(_anBkkHour(to)).padStart(2,'0')}:xx=${swRows.filter(x => x.ms > from && x.ms <= to).length}T`;
+      return `${String(_anBkkHour(to)).padStart(2,'0')}:xx=${swRows.filter(x => x.ms > from && x.ms <= to).length} trades`;
     }).join(', ');
     const swCoins = {}; sw.forEach(t => { swCoins[t.coin] = (swCoins[t.coin] || 0) + 1; });
-    const swCoinStr = Object.entries(swCoins).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c, n]) => c + ':' + n + 'T').join(', ');
+    const swCoinStr = Object.entries(swCoins).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c, n]) => c + ':' + n + ' trades').join(', ');
     const swRecL = swRows.slice(0, 20).filter(x => isL(x.t)).length, swPrvL = swRows.slice(20, 40).filter(x => isL(x.t)).length;
     const swMom = swRows.length < 30 ? 'ข้อมูลไม่พอเทียบ' : swRecL > swPrvL * 1.2 ? 'LONG เพิ่มขึ้น (retail bullish)' : swRecL < swPrvL * 0.8 ? 'LONG ลดลง (retail bearish)' : 'Momentum คงที่';
     swBlock = `
@@ -7502,7 +7525,8 @@ Long/Short (by USD): LONG ${lPct}% | SHORT ${sPct}%
 Volume 6 ชม.ล่าสุด: ${hourTrend}
 Peak Hour (ทุกวันรวมกัน): ${peakHour}
 ${dayBlock}
-เหรียญหลัก: ${coinSummary}
+เหรียญหลัก (เรียงตามจำนวน trades): ${coinSummary}
+📌 นิยาม: "trades" = จำนวนรายการ whale trade ≥$100K (ไม่ใช่มูลค่าเงิน) | LONG/SHORT % ในรายการเหรียญคำนวณตามมูลค่า USD ไม่ใช่ตามจำนวน trades
 Momentum ล่าสุด: ${momentum}
 Trades ล่าสุด 10 รายการ: ${last10 || '—'}
 ${swBlock}
@@ -7521,7 +7545,7 @@ ${mktText}
 5. **คำแนะนำ** 💡: [คำแนะนำสำคัญ สั้น]
 
 **เหรียญที่มีการซื้อขายมากที่สุด**
-[Coin:Trades บรรทัดละเหรียญ]
+[บรรทัดละเหรียญ รูปแบบ "BTC: 283 trades (L 48% / S 52% ตามมูลค่า USD)" — เขียนคำเต็มว่า trades ห้ามย่อเป็น T และห้ามเรียก % นี้ว่าสัดส่วนของ trades]
 ${swRows.length > 0 ? `
 **📊 Small Whale Signal ($10K–$99K)**
 [สรุป Retail sentiment 1-2 ประโยค + agreement/divergence กับ Whale]` : ''}
@@ -10075,8 +10099,8 @@ FORECAST_48H: [BULLISH/BEARISH/NEUTRAL] [0-100%]
     st.sharpeText = text;
     st.sharpeHasData = true; // ✅ v35: มีข้อมูลจริง
     st.sharpeForecasts = msbParseForecasts(text);
-    const clean = text.replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'')
-      .replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim();
+    const clean = text.replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'')
+      .replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim();
     if (resultEl) { resultEl.className = 'msb-signal-result'; resultEl.textContent = clean; }
     msbSetColDir('msbSharpeDir', st.sharpeDir);
     msbSetBar('msbConfSharpe','msbConfSharpePct', st.sharpeConf, st.sharpeDir);
@@ -10549,8 +10573,8 @@ FORECAST_48H: [BULLISH/BEARISH/NEUTRAL] [0-100%]
     // Render in MSB
     const resultEl = document.getElementById('msbNewsResult');
     resultEl.className = 'msb-signal-result';
-    const cleanText = text.replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'')
-      .replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim();
+    const cleanText = text.replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'')
+      .replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim();
     resultEl.textContent = cleanText;
     msbSetColDir('msbNewsDir', st.newsDir);
     msbSetBar('msbConfNews', 'msbConfNewsPct', st.newsConf, st.newsDir);
@@ -10642,7 +10666,15 @@ async function msbAnalyzeWhaleFlow(finalData) {
 
   // ── ถ้าไม่มีข้อมูลเลยทั้ง Live และ Historical ──
   if (liveList.length === 0 && data.length === 0) {
-    resultEl.textContent = '⚠️ ยังไม่มีข้อมูล Whale (รอ Live Feed เชื่อมต่อ หรือกด 🔄 โหลดจาก Sheet ใน Analytics tab)';
+    // v49: บอกสาเหตุจริง — Live ว่าง + Sheet ไม่มีข้อมูลในช่วงที่เลือก (มักเพราะ Sheet ไม่ถูกอัปเดต)
+    let _newestAge = null;
+    try {
+      const _eps = (AN_ALL || []).map(t => _anEpoch(t)).filter(x => x !== null);
+      if (_eps.length) _newestAge = Math.round((Date.now() - Math.max.apply(null, _eps)) / 3600000);
+    } catch (e) {}
+    resultEl.textContent = `⚠️ ไม่มีข้อมูล Whale ≥$100K ในช่วง ${_preset}h — Live ≤90น.: 0 trades` +
+      (_newestAge !== null ? ` · Sheet ล่าสุดเมื่อ ~${_newestAge} ชม.ก่อน` : ' · ยังไม่ได้โหลด Sheet') +
+      (_newestAge !== null && _newestAge >= _preset ? '\n(Sheet ไม่อัปเดต — ตรวจ Trigger บันทึก Whale ใน Apps Script)' : '');
     st.sheetDir = 'NEUTRAL'; st.sheetConf = 25;
     st.sheetHasData = false;
     st.sheetForecasts = msbDefaultForecasts('NEUTRAL', 25);
@@ -10689,7 +10721,7 @@ async function msbAnalyzeWhaleFlow(finalData) {
     const swHrStr = [0, 1, 2].map(i => {
       const ms = _swNowMs - i * 3600000;
       const h  = _anBkkHour(ms);
-      return `${h}:00=${swHvol[_anBkkDate(ms) + '|' + h] || 0}T`;
+      return `${h}:00=${swHvol[_anBkkDate(ms) + '|' + h] || 0} trades`;
     }).join(', ');
 
     // coin breakdown
@@ -10791,8 +10823,8 @@ Cross-validate: (1 ประโยค — Whale bias สอดคล้องห
 
     resultEl.className = 'msb-signal-result';
     resultEl.textContent = `🐋 Live ${liveList.length} (${liveSrc}) + Historical ${data.length} trades\n` +
-      text.replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'')
-      .replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim();
+      text.replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'')
+      .replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim();
     msbSetColDir('msbSheetDir', st.sheetDir);
     msbSetBar('msbConfSheet', 'msbConfSheetPct', st.sheetConf, st.sheetDir);
   } catch(e) {
@@ -10980,7 +11012,7 @@ async function msbSynthesize() {
   }
 
   // ── CVD/OB summary text
-  const cvdText = (st.cvdSummary || 'ไม่มีข้อมูล').replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'').trim().slice(0,200);
+  const cvdText = (st.cvdSummary || 'ไม่มีข้อมูล').replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'').trim().slice(0,200);
 
   // สร้าง grid text สำหรับ prompt
   const gridText = ALL_TF.map(tf => {
@@ -10993,19 +11025,19 @@ ${failedNote}
 
 ━━━ INPUT จาก ${realCount} แหล่ง (✅ = มีข้อมูลจริง | ⛔ = ไม่มีข้อมูล/ล้มเหลว) ━━━
 ${st.newsHasData ? '✅' : '⛔'} [1] Financial Economic Calendar → ${st.newsDir} | ${st.newsConf}% (น้ำหนัก 13%)
-${st.newsHasData ? (st.newsText||'').replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'').replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,180) : '⚠️ ข้อมูลไม่พร้อม — ยกเว้นจากการคำนวณ'}
+${st.newsHasData ? (st.newsText||'').replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'').replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,180) : '⚠️ ข้อมูลไม่พร้อม — ยกเว้นจากการคำนวณ'}
 
 ${st.sharpeHasData ? '✅' : '⛔'} [2] TCC Data (Bloomberg/Reuters/CoinDesk) → ${st.sharpeDir} | ${st.sharpeConf}% (น้ำหนัก 12%)
-${st.sharpeHasData ? (st.sharpeText||'').replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'').replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,200) : '⚠️ ไม่มี SHARPE_API_KEY หรือ API ตอบไม่ได้ — ยกเว้นจากการคำนวณ'}
+${st.sharpeHasData ? (st.sharpeText||'').replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'').replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,200) : '⚠️ ไม่มี SHARPE_API_KEY หรือ API ตอบไม่ได้ — ยกเว้นจากการคำนวณ'}
 
 ${st.sheetHasData ? '✅' : '⛔'} [3] 🐋 Whale Flow (Live ≤90น. + Historical + Small Whale) → ${st.sheetDir} | ${st.sheetConf}% (น้ำหนัก 28% — สำคัญสุด)
-${st.sheetHasData ? (st.sheetSummary||'').replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'').replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,340) : '⚠️ ยังไม่มีข้อมูล Whale Flow — ยกเว้นจากการคำนวณ'}
+${st.sheetHasData ? (st.sheetSummary||'').replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'').replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,340) : '⚠️ ยังไม่มีข้อมูล Whale Flow — ยกเว้นจากการคำนวณ'}
 
 ${st.binanceHasData ? '✅' : '⛔'} [4] Binance OI / Long-Short → ${st.binanceDir} | ${st.binanceConf}% (น้ำหนัก 15%)
-${st.binanceHasData ? (st.binanceSummary||'').replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'').replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,160) : '⚠️ Binance Geo-block HTTP 451 (GAS server อยู่นอก TH) — ยกเว้นจากการคำนวณ'}
+${st.binanceHasData ? (st.binanceSummary||'').replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'').replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,160) : '⚠️ Binance Geo-block HTTP 451 (GAS server อยู่นอก TH) — ยกเว้นจากการคำนวณ'}
 
 ${st.cgHasData ? '✅' : '⛔'} [5] CoinGecko F&G + Dominance → ${st.cgDir} | ${st.cgConf}% (น้ำหนัก 7%)
-${st.cgHasData ? (st.cgSummary||'').replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'').replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,120) : '⚠️ CoinGecko Rate Limit 429 หรือ API error — ยกเว้นจากการคำนวณ'}
+${st.cgHasData ? (st.cgSummary||'').replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'').replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim().slice(0,120) : '⚠️ CoinGecko Rate Limit 429 หรือ API error — ยกเว้นจากการคำนวณ'}
 
 ${st.cvdHasData ? '✅' : '⛔'} [6] CVD + Order Book Depth → ${st.cvdDir} | ${st.cvdConf}% (น้ำหนัก 15%)
 ${st.cvdHasData ? cvdText : '⚠️ Binance Futures FAPI Geo-block — ยกเว้นจากการคำนวณ'}
@@ -11457,8 +11489,8 @@ Funding Signal: (1 ประโยค — crowded long/short risk + ระดั
     // ✅ v07: parse + store forecast ทุก timeframe
     st.binanceForecasts = msbParseForecasts(text);
 
-    const clean = text.replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'')
-      .replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim();
+    const clean = text.replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'')
+      .replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim();
     if (resultEl) { resultEl.className = 'msb-signal-result'; resultEl.textContent = clean; }
     msbSetColDir('msbBinanceDir', st.binanceDir);
     msbSetBar('msbConfBinance', 'msbConfBinancePct', st.binanceConf, st.binanceDir);
@@ -11637,8 +11669,8 @@ Market Structure: (1 ประโยค — ภาพรวม Market Cap + ก�
     // ✅ v07: parse + store forecast ทุก timeframe
     st.cgForecasts = msbParseForecasts(text);
 
-    const clean = text.replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'')
-      .replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim();
+    const clean = text.replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'')
+      .replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim();
     if (resultEl) { resultEl.className = 'msb-signal-result'; resultEl.textContent = clean; }
     msbSetColDir('msbCGDir', st.cgDir);
     msbSetBar('msbConfCG', 'msbConfCGPct', st.cgConf, st.cgDir);
@@ -11835,8 +11867,8 @@ Futures Risk: (1 ประโยค — ความเสี่ยง squeeze/l
     // ✅ v07: parse + store forecast ทุก timeframe
     st.cvdForecasts = msbParseForecasts(text);
 
-    const clean = text.replace(/^DIRECTION[^\n]*\n?/im,'').replace(/^CONFIDENCE[^\n]*\n?/im,'')
-      .replace(/^FORECAST_\d+H[^\n]*\n?/gim,'').trim();
+    const clean = text.replace(/^[*_\s]*DIRECTION[^\n]*\n?/im,'').replace(/^[*_\s]*CONFIDENCE[^\n]*\n?/im,'')
+      .replace(/^[*_\s]*FORECAST_\d+H[^\n]*\n?/gim,'').trim();
     if (resultEl) { resultEl.className = 'msb-signal-result'; resultEl.textContent = clean; }
     msbSetColDir('msbCVDDir', st.cvdDir);
     msbSetBar('msbConfCVD', 'msbConfCVDPct', st.cvdConf, st.cvdDir);
@@ -11925,9 +11957,15 @@ async function msbRunAnalysis() {
   // Run news fetch if needed
   // ✅ v47 FIX: ดึงข่าว Macro ใหม่ทุกครั้งที่กดวิเคราะห์ — เดิมดึงเฉพาะเมื่อช่อง fcNewsText ว่าง จึงใช้ข่าวเก่าที่ค้างอยู่ต่อ
   //   (fcNewsText เป็น textarea ที่ซ่อนอยู่ ไม่มีผู้ใช้พิมพ์เอง → เขียนทับได้ปลอดภัย)
-  document.getElementById('msbNewsStatus').textContent = '🔄 กำลังดึงข่าว...';
-  try { await fcFetchEcoCalendar(false); } catch(newsErr) { console.warn('[MSB] fetch news failed:', newsErr && newsErr.message); }
-  await new Promise(r => setTimeout(r, 800));
+  // v49: จำกัดความถี่ — ดึงใหม่เมื่อเกิน 10 นาที / ยังไม่มีข่าว / ครั้งก่อนเป็น fallback (ปฏิทินรายสัปดาห์ไม่เปลี่ยนทุกนาที และแหล่งข่าวมี rate limit)
+  const _newsTxtNow = (document.getElementById('fcNewsText')?.value || '').trim();
+  const _newsStale  = !window._msbNewsAt || (Date.now() - window._msbNewsAt) > 10 * 60 * 1000
+                      || !_newsTxtNow || window._fcEcoSource === 'fallback' || _newsTxtNow.includes('[FALLBACK DATA');
+  if (_newsStale) {
+    document.getElementById('msbNewsStatus').textContent = '🔄 กำลังดึงข่าว...';
+    try { await fcFetchEcoCalendar(false); window._msbNewsAt = Date.now(); } catch(newsErr) { console.warn('[MSB] fetch news failed:', newsErr && newsErr.message); }
+    await new Promise(r => setTimeout(r, 800));
+  }
   document.getElementById('msbNewsStatus').textContent = '✅ พร้อม';
 
   // v14 NEW: ดึง Market Context ก่อนรัน AI (ให้ทุก prompt มีข้อมูลครบ)
