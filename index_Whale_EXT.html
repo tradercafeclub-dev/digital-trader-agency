@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>TCC Whale Tracker v39</title>
+<title>TCC Whale Tracker v40</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐋</text></svg>"/>
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐋</text></svg>"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -12968,7 +12968,10 @@ const S = {
   sourceDetail: {},      // ok+partial detail ต่อแหล่งจาก Worker /agg (สำหรับ EST badge)
   leverageIsEstimate: false,
   workerDown: false,     // true = /price+/agg ล้มทั้งคู่ กำลังใช้ HL fallback ตรง
-  liqFeedLive: false,    // สถานะ Binance liquidation WS
+  liqFeedLive: false,    // v40: = มี liq feed live อย่างน้อย 1 แหล่ง (BN WS / Bybit SSE / OKX SSE) — คำนวณใน renderLiqFeedUI()
+  liqBN: false,          // v40: สถานะ Binance liquidation WS (เดิมคือ liqFeedLive)
+  liqBNBlocked: false,   // v40: Binance liq WS โดน block ถาวร
+  liqSse: { bybit: false, okx: false },   // v40: สถานะ liq ของ Bybit/OKX จาก SSE event 'liqstatus'
 };
 
 // overlay toggles
@@ -13003,7 +13006,7 @@ const VP_VIS_MIN = 20, VP_VIS_MAX = 260;
 
 let candles = [];
 let trades  = [];  // { px, sz, usd, side, ts, exch } — เทรดจริงจากหลายเอ็กซ์เชนจ์ (ไม่ใช่แค่ HL อีกต่อไป)
-let realLiqs = []; // { px, usd, side:'long'|'short', ts } — liquidation ที่ "เกิดจริง" จาก Binance forceOrder@arr
+let realLiqs = []; // { px, usd, side:'long'|'short', ts, exch } — liquidation ที่ "เกิดจริง" จาก Binance forceOrder@arr + (v40) Bybit/OKX ผ่าน SSE event 'liq'
 // (v38) heatmap ใหม่ = LiqEngine — ดูหมวด LIQ ENGINE ด้านล่าง (state อยู่ใน LQ)
 let bands   = [];  // legacy: เหลือไว้ให้ updatePulseOverlays() เดิม (ว่างเสมอ → no-op); heatmap จริงใช้ LQ.res
 let ws      = null;   // Hyperliquid — trades + candle
@@ -13506,6 +13509,7 @@ let _sseTag = 0; // instance tag — ป้องกัน stale event ของ
 function connectTradesSSE() {
   if (tradesSSE) { try { tradesSSE.close(); } catch (_) {} }
   const tag = ++_sseTag;
+  S.liqSse = { bybit: false, okx: false }; renderLiqFeedUI();   // v40: เชื่อมต่อใหม่ (เปลี่ยนเหรียญ/reconnect) → รอ liqstatus จาก Worker
   const url = `${CFG.workerUrl}/trades?coin=${encodeURIComponent(S.coin)}`;
   let es;
   try {
@@ -13539,12 +13543,29 @@ function connectTradesSSE() {
     updateSourceUI();
   });
 
+  // v40: liquidation จริงของ Bybit/OKX — Worker แปลง side ('long' = ฝั่ง long โดน liquidate) และ usd ให้เสร็จแล้ว
+  // Worker v16 หรือเก่ากว่าไม่ส่ง event นี้ → listener แค่ไม่ทำงาน ไม่เกิด error
+  es.addEventListener('liq', e => {
+    if (tag !== _sseTag) return; // stale instance
+    let l; try { l = JSON.parse(e.data); } catch (_) { return; }
+    processSseLiq(l);
+  });
+
+  es.addEventListener('liqstatus', e => {
+    if (tag !== _sseTag) return; // stale instance
+    let s; try { s = JSON.parse(e.data); } catch (_) { return; }
+    if (!s || (s.exch !== 'bybit' && s.exch !== 'okx')) return;
+    S.liqSse[s.exch] = !!s.ok;
+    renderLiqFeedUI();
+  });
+
   es.onerror = () => {
     if (tag !== _sseTag) return; // stale instance
     // EventSource reconnect ให้เองอัตโนมัติ (native retry) — แค่ mark ERR ระหว่างรอสายใหม่กลับมา
     S.sourceStatus.bybit = false;
     S.sourceStatus.okx   = false;
     updateSourceUI();
+    S.liqSse = { bybit: false, okx: false }; renderLiqFeedUI();   // v40
   };
 }
 
@@ -13583,6 +13604,24 @@ function processRealLiq(o) {
   if (realLiqs.length > 300) realLiqs.shift();
 
   if (usd >= CFG.minUsd * 0.3) { // liquidation เด่นกว่าเทรดปกติ เลยตั้ง threshold ต่ำกว่าหน่อยให้ยังเห็นใน feed
+    feedBuffer.push(evt);
+    if (!feedFlushTimer) feedFlushTimer = setTimeout(flushFeed, 500);
+  }
+  needsRedraw = true;
+}
+
+// v40: liquidation จาก Worker SSE (Bybit/OKX) — รูปแบบเดียวกับ processRealLiq → LAYER 3b และ flushFeed ใช้ต่อได้เลย
+// l = { exch:'BB'|'OKX', side:'long'|'short', px, sz, usd, time }  (px = bankruptcy price ไม่ใช่ราคาที่จับคู่จริง)
+function processSseLiq(l) {
+  if (!l) return;
+  const px = +l.px, usd = +l.usd;
+  if (!(px > 0) || !(usd > 0)) return;
+  const exch = (l.exch === 'BB' || l.exch === 'OKX') ? l.exch : 'LIQ';   // whitelist — ค่านี้ถูกใส่ลง innerHTML ใน flushFeed
+  const evt = { px, usd, side: l.side === 'long' ? 'long' : 'short', ts: +l.time || Date.now(), exch, kind: 'liq' };
+  realLiqs.push(evt);
+  if (realLiqs.length > 300) realLiqs.shift();
+
+  if (usd >= CFG.minUsd * 0.3) {   // threshold เดียวกับ Binance liq
     feedBuffer.push(evt);
     if (!feedFlushTimer) feedFlushTimer = setTimeout(flushFeed, 500);
   }
@@ -13916,7 +13955,7 @@ function liqSetStatus() {
     el.style.color = LQ.fails ? '#ff6b5e' : '';
     return;
   }
-  const nm = { bybit: 'Bybit', okx: 'OKX', hl: 'HL' };
+  const nm = { bybit: 'Bybit', okx: 'OKX', hl: 'HL', gas: 'GAS (สะสมเอง)' };   // v40: gas = OI snapshot ที่ GAS เก็บเอง (fallback ของ Worker)
   let txt = 'Liq · ' + (nm[d.src && d.src.candles] || '—');
   txt += (d.src && d.src.oi) ? ' · OI ' + nm[d.src.oi] : ' · ไม่มี OI (ใช้ volume ประมาณ)';
   if (d.stale) txt += ' · ⚠ ข้อมูลค้าง';
@@ -14750,14 +14789,26 @@ function updateFallbackUI() {
   if (el) el.style.display = S.workerDown ? 'inline-block' : 'none';
 }
 
+// v40: ผู้เรียกเดิม (connectBinanceLiqWS) ยังเรียก updateLiqFeedUI(live, blocked) เหมือนเดิม — ตอนนี้แค่บันทึกสถานะ BN แล้วให้ renderLiqFeedUI() รวมกับ SSE
 function updateLiqFeedUI(live, blocked) {
+  S.liqBN = !!live;
+  S.liqBNBlocked = !!blocked;
+  renderLiqFeedUI();
+}
+
+function renderLiqFeedUI() {
+  const names = [];
+  if (S.liqBN) names.push('BN');
+  if (S.liqSse && S.liqSse.bybit) names.push('BB');
+  if (S.liqSse && S.liqSse.okx)   names.push('OKX');
+  const live = names.length > 0;
   S.liqFeedLive = live;
   const dot = document.getElementById('liqDot');
   const lbl = document.getElementById('liqLbl');
   if (dot) dot.classList.toggle('live', live);
   if (lbl) {
-    if (live)         lbl.textContent = 'Liq feed · live (BN)';
-    else if (blocked || wsIsBlocked('binanceLiq'))
+    if (live)         lbl.textContent = 'Liq feed · live (' + names.join(' · ') + ')';
+    else if (S.liqBNBlocked || wsIsBlocked('binanceLiq'))
                       lbl.textContent = 'Liq feed · ไม่พร้อมใช้งาน (network block)';
     else              lbl.textContent = 'Liq feed · ขาดการเชื่อมต่อ';
   }
