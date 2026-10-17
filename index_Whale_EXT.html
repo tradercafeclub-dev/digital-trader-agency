@@ -3103,6 +3103,247 @@ html{
 }
 
 
+/* ══════════════════════════════════════════════════════════════
+   v41 · HUNTER MOBILE REDESIGN (≤768px)
+   CSS-only — ไม่แตะโลจิกคำนวณ / Worker / desktop layout
+   วางท้ายสุดของ <style> เพื่อให้ชนะ rule มือถือเดิมด้านบนด้วยลำดับ cascade
+   (หมายเหตุ: .stat.primary เดิมมี border-bottom 2px สีฟ้า → ถูก reset ที่นี่)
+══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px){
+
+  /* ── 1) Root: ตัด padding ซ้ำ — .main เว้นที่ให้ bottom nav (56px) อยู่แล้ว
+        เดิม #hunterApp เว้นซ้ำอีก 56px → เกิดพื้นที่ว่างใต้ Volume ── */
+  #hunterApp{ padding-bottom: 0; background: var(--bg); }
+
+  /* ── 2) TOPBAR ── */
+  #hunterApp #topbar{
+    height: 52px;
+    padding: 0 10px;
+    gap: 8px;
+    background: linear-gradient(180deg, rgba(15,23,35,.97) 0%, rgba(8,13,20,.97) 100%);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    box-shadow: 0 8px 18px -14px rgba(0,0,0,.9);
+  }
+
+  /* ปุ่มกลับ: inline style ในมาร์กอัพ → ต้องใช้ !important เฉพาะ geometry */
+  #hunterApp #hunterBackBtn{
+    height: 34px;
+    padding: 0 12px !important;
+    border-radius: 17px !important;
+    font-size: 12px !important;
+    display: inline-flex;
+    align-items: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #hunterApp #hunterBackBtn:active{ transform: scale(.95); }
+
+  #hunterApp #topbar h1{
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 11px;
+    letter-spacing: .8px;
+  }
+
+  #hunterApp #coinSel,
+  #hunterApp #ivSel{
+    height: 34px;
+    padding: 0 24px 0 13px;
+    border-radius: 17px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .2px;
+    background-color: rgba(255,255,255,.05);
+    border-color: rgba(255,255,255,.10);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2378909f'/%3E%3C/svg%3E");
+    background-position: right 10px center;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* จุดสถานะ: ดันชิดขวา + ใหญ่ขึ้นเล็กน้อยให้เห็นชัด */
+  #hunterApp #wsTag{ margin-left: auto; }
+  #hunterApp #wsTag, #hunterApp #liqTag{ gap: 0; }
+  #hunterApp #topbar .dot{ width: 9px; height: 9px; }
+  #hunterApp #topbar .dot.live{ box-shadow: 0 0 8px var(--green); }
+
+  /* ── 3) RANGE BAR: แถวบน = segmented tabs เต็มความกว้าง / แถวล่าง = สถานะ Liq ── */
+  #hunterApp #rangeBar{
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 6px 10px 4px;
+    overflow: visible;
+    background: var(--panel);
+    border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+
+  #hunterApp #rangeTabs{
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 2px;
+    padding: 2px;
+    background: rgba(255,255,255,.035);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 12px;
+  }
+
+  #hunterApp #rangeTabs button{
+    min-height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: #6f879f;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    transition: background .15s, color .15s, box-shadow .15s, transform .1s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #hunterApp #rangeTabs button:active{ transform: scale(.95); }
+
+  #hunterApp #rangeTabs button.active{
+    background: linear-gradient(180deg, rgba(64,196,255,.24) 0%, rgba(64,196,255,.10) 100%);
+    border-color: rgba(64,196,255,.50);
+    color: var(--accent);
+    font-weight: 700;
+    box-shadow: 0 0 12px -3px rgba(64,196,255,.45);
+  }
+
+  /* สถานะ Liq: บรรทัดเดียวเต็มกว้าง ไม่ถูกตัดจากแถบแท็บ — ข้อความถูก JS เขียนทับ (liqSetStatus) */
+  #hunterApp #liqStatus{
+    flex: 1 1 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0 2px;
+    font-size: 10px;
+    line-height: 14px;
+    letter-spacing: .2px;
+    color: #6f879f;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #hunterApp #liqStatus::before{
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    margin-right: 6px;
+    vertical-align: 1px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  /* JS ตั้ง inline color เมื่อมี warning/error → จุดเปลี่ยนตามสีข้อความ (ส้ม/แดง) */
+  #hunterApp #liqStatus[style*="color"]::before{
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  /* ── 4) STATS: grid 4 คอลัมน์ × 2 แถว (คงการจับคู่เดิม: ราคา | Volume | Coverage/OI | Long/Short)
+        แถวสูงคงที่ → ไม่ clip แนวตั้ง, เส้นแบ่งบาง 1px ด้วย gap, ไม่มีกรอบสีฟ้าหนา ── */
+  #hunterApp #statsbar{
+    grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, 44px);
+    height: auto;
+    gap: 1px;
+    background: rgba(255,255,255,.06);          /* สีเส้นแบ่งที่โผล่ผ่าน gap */
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    overflow: hidden;
+  }
+
+  #hunterApp #statsbar > .stat{
+    padding: 4px 7px 3px;
+    border: 0;                                  /* reset border ซ้อนจาก rule เดิมทั้งหมด */
+    background: #0a1018;
+    justify-content: center;
+  }
+  #hunterApp #statsbar > .stat.primary{
+    background: linear-gradient(180deg, rgba(64,196,255,.07) 0%, #0a1018 100%);
+  }
+  #hunterApp #statsbar > .stat.primary::before{ content: none; }  /* ไม่ใช้แถบฟ้าซ้ำ 4 จุด */
+
+  /* Long / Short OI: คง accent เขียว/แดง ให้อ่านทิศทางได้ทันที */
+  #hunterApp .stat:has(#sLongOI)::before,
+  #hunterApp .stat:has(#sShortOI)::before{ width: 3px; border-radius: 0 2px 2px 0; }
+
+  #hunterApp #statsbar .stat .lbl{
+    font-size: 9.5px;
+    line-height: 1.15;
+    letter-spacing: 0;
+    text-transform: none;                       /* mixed-case แคบกว่า UPPERCASE → "Futures Vol 24H" ไม่ถูกตัด */
+    color: #6f879f;
+    margin-bottom: 1px;
+  }
+  #hunterApp #statsbar .stat .val,
+  #hunterApp #statsbar .stat.primary .val{
+    font-size: clamp(11.5px, 3.5vw, 14px);
+    line-height: 1.15;
+    letter-spacing: -.3px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  #hunterApp #statsbar .stat .stat-sub{
+    font-size: 9px;
+    line-height: 1.15;
+    margin-top: 1px;
+    color: #5d7490;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── 5) CHART AREA: ซ่อนคำอธิบาย (caption) ที่ลอยทับ colorbar — legend อยู่ในแท็บ "ข้อมูล" แล้ว ── */
+  #hunterApp #caption{ display: none; }
+
+  /* ── 6) BOTTOM NAV: ความสูง = ที่ .main เว้นไว้ (56px + safe-area) เพื่อไม่ให้เหลือช่องว่าง ── */
+  #hunterApp #mobileBottomNav{
+    box-sizing: border-box;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding: 0 6px env(safe-area-inset-bottom, 0px);
+    background: linear-gradient(180deg, rgba(13,20,31,.95) 0%, rgba(7,11,17,.98) 100%);
+    border-top: 1px solid rgba(255,255,255,.07);
+    box-shadow: 0 -10px 28px -14px rgba(0,0,0,.8);
+  }
+
+  #hunterApp .mob-nav-item{
+    margin: 6px 3px;
+    padding: 0 2px;
+    gap: 2px;
+    border-radius: 14px;
+    color: #6f879f;
+    transition: background .15s, color .15s;
+  }
+  #hunterApp .mob-nav-item::before{ content: none; }      /* เลิกขีดเส้นบน → ใช้ pill พื้นหลังแทน */
+  #hunterApp .mob-nav-item.active::before{ content: none; }
+  #hunterApp .mob-nav-item.active{
+    background: rgba(64,196,255,.12);
+    color: var(--accent);
+  }
+  #hunterApp .mob-nav-item:active{ background: rgba(255,255,255,.07); }
+
+  #hunterApp .mob-nav-icon{
+    font-size: 19px;
+    opacity: .72;
+    filter: saturate(.7);
+    transition: opacity .15s, filter .15s;
+  }
+  #hunterApp .mob-nav-item.active .mob-nav-icon{ opacity: 1; filter: none; }
+
+  #hunterApp .mob-nav-label{
+    font-size: 10px;
+    letter-spacing: .2px;
+    text-transform: none;                                 /* "History" กับภาษาไทยดูสม่ำเสมอ */
+  }
+  #hunterApp .mob-nav-item.active .mob-nav-label{ font-weight: 700; }
+
+  #hunterApp .mob-nav-item .mob-live-dot{ top: 7px; right: calc(50% - 16px); }
+}
+
+/* จอเล็กมาก (≤360px): ตัดชื่อ "TCC HUNTER" เพื่อไม่ให้ topbar แน่น */
+@media (max-width: 360px){
+  #hunterApp #topbar h1{ display: none; }
+}
 
 </style>
 
